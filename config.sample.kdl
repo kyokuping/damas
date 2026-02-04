@@ -1,0 +1,22 @@
+server {
+    listen 80
+    server-name "127.0.0.1"
+    location "/" {
+        root "/var/www/html"
+        index "index.html" "index.htm"
+    }
+    location "/location" {
+        root "/var/www/html"
+        index "index.html" "index.htm"
+    }
+    (exact)location "/50x.html" {
+        root "/var/www/html/500"
+    }
+    error-page "/50x.html" {
+        codes 500 502 503 504
+    }
+
+    connection-buffer-size 4096
+    file-read-buffer-size 8192
+    max-header-count 64
+}

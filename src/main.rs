@@ -1,11 +1,20 @@
 use compio::net::TcpListener;
 use compio::runtime::spawn;
-use damas::handle_connection;
+use damas::config::{Config, parse_config};
+use damas::{ServerContext, handle_connection};
 
 #[compio::main]
-async fn main() {
-    let host = "127.0.0.1";
-    let port = 1111;
+async fn main() -> anyhow::Result<()> {
+    let config = match parse_config("./config.kdl") {
+        Ok(c) => c,
+        Err(report) => {
+            println!("{:?}", report);
+            return Err(anyhow::Error::from_boxed(report.into()));
+        }
+    };
+    let config: &'static Config = Box::leak(Box::new(config));
+    let host = &config.server.server_name;
+    let port = config.server.listen;
     let listener = match TcpListener::bind(format!("{}:{}", host, port)).await {
         Ok(listener) => {
             println!("Listening on {}", host);
@@ -20,7 +29,12 @@ async fn main() {
         match listener.accept().await {
             Ok((stream, address)) => {
                 println!("Accepted connection from {}", address);
-                spawn(async move { handle_connection(stream).await }).detach();
+                spawn(async move {
+                    if let Err(e) = handle_connection(stream, ServerContext { config }).await {
+                        eprintln!("Error handling connection: {}", e);
+                    }
+                })
+                .detach();
             }
             Err(err) => {
                 eprintln!("Failed to accept connection: {}", err);

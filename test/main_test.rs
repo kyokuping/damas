@@ -1,7 +1,11 @@
 use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
-use damas::{get_mime_type, handle_connection, sanitize_path};
+use damas::{
+    ServerContext,
+    config::{Config, parse_config},
+    get_mime_type, handle_connection, sanitize_path,
+};
 use std::path::PathBuf;
 
 #[test]
@@ -102,7 +106,9 @@ impl AsyncWrite for RwMock {
 #[compio::test]
 async fn test_handle_connection_invalid_request() {
     let mut stream = RwMock::new(b"GET HTTP/1.1\r\n\r\n"); // missing path
-    let result = handle_connection(&mut stream).await;
+    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
+    let config = ServerContext { config };
+    let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -116,7 +122,9 @@ async fn test_handle_connection_invalid_request() {
 #[compio::test]
 async fn test_handle_connection_unsupported_method() {
     let mut stream = RwMock::new(b"POST /not_found HTTP/1.1\r\n\r\n");
-    let result = handle_connection(&mut stream).await;
+    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
+    let config = ServerContext { config };
+    let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -130,7 +138,9 @@ async fn test_handle_connection_unsupported_method() {
 #[compio::test]
 async fn test_handle_connection_ok() {
     let mut stream = RwMock::new(b"GET /index.html HTTP/1.1\r\nHost: example.domain\r\n\r\n");
-    let result = handle_connection(&mut stream).await;
+    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
+    let config = ServerContext { config };
+    let result = handle_connection(&mut stream, config).await;
     assert!(
         result.is_ok(),
         "Expected Ok, got: {:?}",

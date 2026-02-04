@@ -1,3 +1,4 @@
+use crate::config::Config;
 use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
 use compio::fs::File;
@@ -8,8 +9,18 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::path::{Component, PathBuf};
 
-pub async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T) -> anyhow::Result<()> {
-    let mut buffer = Vec::with_capacity(4096); //4KB
+pub mod config;
+
+#[derive(Debug)]
+pub struct ServerContext<'a> {
+    pub config: &'a Config,
+}
+
+pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
+    mut stream: T,
+    context: ServerContext<'a>,
+) -> anyhow::Result<()> {
+    let mut buffer = Vec::with_capacity(context.config.server.connection_buffer_size);
     loop {
         let (bytes_read, buf) = buf_try!(@try stream.append(buffer).await);
         buffer = buf;
@@ -18,8 +29,9 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T) -> anyh
             return Ok(());
         }
 
-        let mut headers_vec = vec![httparse::EMPTY_HEADER; 64].into_boxed_slice();
-        let mut request = httparse::Request::new(&mut headers_vec);
+        let mut headers =
+            vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
+        let mut request = httparse::Request::new(&mut headers);
 
         let parse_result = request.parse(&buffer);
 
@@ -33,7 +45,8 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T) -> anyh
             }
         }
     }
-    let mut headers = vec![httparse::EMPTY_HEADER; 64].into_boxed_slice();
+    let mut headers =
+        vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
     let mut request = httparse::Request::new(&mut headers);
     request
         .parse(&buffer)
@@ -74,7 +87,8 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T) -> anyh
 
         let (_, _returned_headers) = buf_try!(@try stream.write_all(headers).await);
         let mut pos = 0;
-        let mut file_buffer: Vec<u8> = Vec::with_capacity(8192); //8KB
+        let mut file_buffer: Vec<u8> =
+            Vec::with_capacity(context.config.server.file_read_buffer_size);
 
         while pos < file_size {
             let (read_bytes, returned_file_buffer) = buf_try!(
