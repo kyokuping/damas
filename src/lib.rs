@@ -63,18 +63,31 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             request.method.unwrap_or("UNKNOWN")
         ));
     }
-    if let Some(path_str) = request.path {
-        let base_root = context
-            .config
-            .server
-            .locations
-            .iter()
-            .find(|loc| loc.path == PathBuf::from("/"))
-            .map(|loc| loc.root.clone())
-            .ok_or(anyhow!("impossible roo"))?;
+    if let Some(mut path_str) = request.path {
+        let matched_handler = context
+            .router
+            .search(path_str)
+            .ok_or(anyhow!("No matching route found for path: {}", path_str))?;
+        let base_root = PathBuf::from(matched_handler);
+        if base_root.is_dir() {
+            let index_list: Option<&Vec<String>> = context
+                .config
+                .server
+                .locations
+                .iter()
+                .find(|loc| loc.root == base_root)
+                .map(|loc| &loc.index);
 
+            if let Some(index) = index_list {
+                for idx in index {
+                    if base_root.join(idx).is_file() {
+                        path_str = idx;
+                        break;
+                    }
+                }
+            }
+        }
         let path = sanitize_path(path_str, base_root).ok_or(anyhow!("invalid path: {path_str}"))?;
-
         let file = match File::open(&path).await {
             Ok(file) => file,
             Err(err) => match err.kind() {

@@ -4,10 +4,12 @@ use compio::io::{AsyncRead, AsyncWrite};
 use damas::router::RouterNode;
 use damas::{
     ServerContext,
-    config::{Config, parse_config},
+    config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig},
     get_mime_type, handle_connection, sanitize_path,
 };
-use std::path::PathBuf;
+use std::fs::File;
+use std::path::{Path, PathBuf};
+use tempfile::tempdir;
 
 #[test]
 fn test_sanitize_path_valid() {
@@ -107,16 +109,52 @@ impl AsyncWrite for RwMock {
     }
 }
 
+fn create_mock_context<F>(modifier: F) -> (Config, RouterNode)
+where
+    F: FnOnce(&mut Config),
+{
+    let mut config = Config {
+        server: ServerConfig {
+            listen: 80,
+            server_name: "localhost".to_string(),
+            locations: vec![LocationConfig {
+                path: Path::new("/").to_path_buf(),
+                root: Path::new("/www/var/html").to_path_buf(),
+                index: vec!["index.html".to_string(), "index.htm".to_string()],
+                ty: Some(LocationConfigType::Prefix),
+            }],
+            error_page: vec![ErrorPage {
+                codes: vec![500, 502, 503, 504],
+                path: Path::new("/50x.html").to_path_buf(),
+            }],
+            connection_buffer_size: 4096,
+            file_read_buffer_size: 8192,
+            max_header_count: 64,
+        },
+    };
+    modifier(&mut config);
+
+    let router = RouterNode::from_config(&config).unwrap();
+
+    (config, router)
+}
+
 #[compio::test]
 async fn test_handle_connection_invalid_request() {
-    let mut stream = RwMock::new(b"GET HTTP/1.1\r\n\r\n"); // missing path
-    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let router = RouterNode::from_config(config).unwrap();
-    let context = ServerContext {
-        config,
+    let mut stream = RwMock::new(b"GET HTTP/1.1\r\n\r\n"); // missing path\
+    let (config, router) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: PathBuf::from("/www/root"),
+            index: vec![],
+        }]
+    });
+    let config = ServerContext {
+        config: &config,
         router: &router,
     };
-    let result = handle_connection(&mut stream, context).await;
+    let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -130,13 +168,19 @@ async fn test_handle_connection_invalid_request() {
 #[compio::test]
 async fn test_handle_connection_unsupported_method() {
     let mut stream = RwMock::new(b"POST /not_found HTTP/1.1\r\n\r\n");
-    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let router = RouterNode::from_config(config).unwrap();
-    let context = ServerContext {
-        config,
+    let (config, router) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: PathBuf::from("/www/root"),
+            index: vec![],
+        }];
+    });
+    let config = ServerContext {
+        config: &config,
         router: &router,
     };
-    let result = handle_connection(&mut stream, context).await;
+    let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -150,13 +194,61 @@ async fn test_handle_connection_unsupported_method() {
 #[compio::test]
 async fn test_handle_connection_ok() {
     let mut stream = RwMock::new(b"GET /index.html HTTP/1.1\r\nHost: example.domain\r\n\r\n");
-    let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let router = RouterNode::from_config(config).unwrap();
-    let context = ServerContext {
-        config,
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("index.html");
+    File::create(&file_path).unwrap();
+
+    let (config, router) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: dir.path().to_path_buf(),
+            index: vec!["index.html".to_string(), "index2.html".to_string()],
+        }];
+    });
+    let config = ServerContext {
+        config: &config,
         router: &router,
     };
-    let result = handle_connection(&mut stream, context).await;
+    let result = handle_connection(&mut stream, config).await;
+    assert!(
+        result.is_ok(),
+        "Expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+    assert!(
+        stream.write_buf.starts_with(b"HTTP/1.1 200 OK\r\n"),
+        "Expected 200 OK, got: {:?}",
+        String::from_utf8_lossy(&stream.write_buf)
+    );
+    assert!(
+        stream.write_buf.ends_with(b"\r\n\r\n"),
+        "Expected empty body, got: {:?}",
+        String::from_utf8_lossy(&stream.write_buf)
+    );
+}
+
+#[compio::test]
+async fn test_index() {
+    let mut stream = RwMock::new(b"GET / HTTP/1.1\r\nHost: example.domain\r\n\r\n");
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("index.html");
+    File::create(&file_path).unwrap();
+
+    let (config, router) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: dir.path().to_path_buf(),
+            index: vec!["index.html".to_string(), "index2.html".to_string()],
+        }];
+    });
+    let config = ServerContext {
+        config: &config,
+        router: &router,
+    };
+    let result = handle_connection(&mut stream, config).await;
+
     assert!(
         result.is_ok(),
         "Expected Ok, got: {:?}",
