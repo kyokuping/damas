@@ -1,6 +1,7 @@
 use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
+use damas::router::RouterNode;
 use damas::{
     ServerContext,
     config::{Config, parse_config},
@@ -110,8 +111,12 @@ impl AsyncWrite for RwMock {
 async fn test_handle_connection_invalid_request() {
     let mut stream = RwMock::new(b"GET HTTP/1.1\r\n\r\n"); // missing path
     let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let config = ServerContext { config };
-    let result = handle_connection(&mut stream, config).await;
+    let router = RouterNode::from_config(config).unwrap();
+    let context = ServerContext {
+        config,
+        router: &router,
+    };
+    let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -126,8 +131,12 @@ async fn test_handle_connection_invalid_request() {
 async fn test_handle_connection_unsupported_method() {
     let mut stream = RwMock::new(b"POST /not_found HTTP/1.1\r\n\r\n");
     let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let config = ServerContext { config };
-    let result = handle_connection(&mut stream, config).await;
+    let router = RouterNode::from_config(config).unwrap();
+    let context = ServerContext {
+        config,
+        router: &router,
+    };
+    let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -142,8 +151,12 @@ async fn test_handle_connection_unsupported_method() {
 async fn test_handle_connection_ok() {
     let mut stream = RwMock::new(b"GET /index.html HTTP/1.1\r\nHost: example.domain\r\n\r\n");
     let config: &'static Config = Box::leak(Box::new(parse_config("./config.kdl").unwrap()));
-    let config = ServerContext { config };
-    let result = handle_connection(&mut stream, config).await;
+    let router = RouterNode::from_config(config).unwrap();
+    let context = ServerContext {
+        config,
+        router: &router,
+    };
+    let result = handle_connection(&mut stream, context).await;
     assert!(
         result.is_ok(),
         "Expected Ok, got: {:?}",

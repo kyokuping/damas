@@ -1,6 +1,7 @@
 use compio::net::TcpListener;
 use compio::runtime::spawn;
 use damas::config::{Config, parse_config};
+use damas::router::RouterNode;
 use damas::{ServerContext, handle_connection};
 
 #[compio::main]
@@ -29,8 +30,17 @@ async fn main() -> anyhow::Result<()> {
         match listener.accept().await {
             Ok((stream, address)) => {
                 println!("Accepted connection from {}", address);
+                let router = RouterNode::from_config(config).unwrap();
                 spawn(async move {
-                    if let Err(e) = handle_connection(stream, ServerContext { config }).await {
+                    if let Err(e) = handle_connection(
+                        stream,
+                        ServerContext {
+                            config,
+                            router: &router,
+                        },
+                    )
+                    .await
+                    {
                         eprintln!("Error handling connection: {}", e);
                     }
                 })

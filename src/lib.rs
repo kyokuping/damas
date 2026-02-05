@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::router::RouterNode;
 use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
 use compio::fs::File;
@@ -10,10 +11,12 @@ use std::path::Path;
 use std::path::{Component, PathBuf};
 
 pub mod config;
+pub mod router;
 
 #[derive(Debug)]
 pub struct ServerContext<'a> {
     pub config: &'a Config,
+    pub router: &'a RouterNode,
 }
 
 pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
