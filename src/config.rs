@@ -8,7 +8,7 @@ pub struct Config {
     pub server: ServerConfig,
 }
 
-#[derive(knus::Decode, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
 pub struct ServerConfig {
     #[knus(child, unwrap(argument))]
     pub listen: u16,
@@ -26,10 +26,12 @@ pub struct ServerConfig {
     pub max_header_count: usize,
 }
 
-#[derive(knus::Decode, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
 pub struct LocationConfig {
+    /// Request URI path
     #[knus(argument)]
     pub path: PathBuf,
+    /// Root directory for serving files
     #[knus(child, unwrap(argument))]
     pub root: PathBuf,
     #[knus(child, default = vec![], unwrap(arguments))]
@@ -38,7 +40,7 @@ pub struct LocationConfig {
     pub ty: Option<LocationConfigType>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LocationConfigType {
     Exact,
     Prefix,
@@ -107,7 +109,7 @@ impl LocationConfig {
     }
 }
 
-#[derive(knus::Decode, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
 pub struct ErrorPage {
     #[knus(argument)]
     pub path: PathBuf,
