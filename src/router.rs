@@ -8,11 +8,13 @@ pub struct RouterNode {
     handler: Option<String>,
 }
 
-impl RouterNode {
-    pub fn create_root() -> Self {
-        RouterNode::new("", None)
+impl Default for RouterNode {
+    fn default() -> Self {
+        Self::new("", None)
     }
+}
 
+impl RouterNode {
     fn new(path: &str, handler: Option<String>) -> Self {
         Self {
             path: path.to_string(),
@@ -73,7 +75,7 @@ impl RouterNode {
     }
 
     pub fn from_config(config: &Config) -> anyhow::Result<Self, anyhow::Error> {
-        let mut router = RouterNode::create_root();
+        let mut router = RouterNode::default();
         for loc in config.server.locations.iter() {
             let path = loc.path.to_string_lossy();
             let root = loc.root.to_string_lossy();
@@ -119,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_router_insert_and_search() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", None);
         root.insert("/home", Some("/www/var/html/home".to_string()));
         root.insert("/about", Some("/www/var/html/about".to_string()));
@@ -137,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_router_split_node_simple() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/home", Some("/www/var/html/home".to_string()));
         root.insert("/homepage", Some("/www/var/html/homepage".to_string()));
@@ -155,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_router_split_node_complex() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/apple", Some("/www/var/html/apple".to_string()));
         root.insert("/apricot", Some("/www/var/html/apricot".to_string()));
@@ -175,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_router_deep_path() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/a/b/c", Some("/www/var/html/a/b/c".to_string()));
         root.insert("/a/b", Some("/www/var/html/a/b".to_string()));
@@ -196,7 +198,7 @@ mod tests {
 
     #[test]
     fn test_router_search_not_found() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/home", Some("/www/var/html/home".to_string()));
         root.insert(
@@ -211,7 +213,7 @@ mod tests {
 
     #[test]
     fn test_router_root_path_handler() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html/index.html".to_string()));
         assert_eq!(
             root.search("/"),
@@ -228,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_router_overwrite_handler() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/path", Some("/www/var/html/v1".to_string()));
         assert_eq!(root.search("/path"), Some(&"/www/var/html/v1".to_string()));
@@ -239,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_router_common_prefix_split() {
-        let mut root = RouterNode::create_root();
+        let mut root = RouterNode::default();
         root.insert("/", Some("/www/var/html".to_string()));
         root.insert("/teams", Some("/www/var/html/teams".to_string()));
         root.insert("/team", Some("/www/var/html/team".to_string()));
@@ -252,7 +254,7 @@ mod tests {
             Some(&"/www/var/html/teams".to_string())
         );
 
-        let mut root2 = RouterNode::create_root();
+        let mut root2 = RouterNode::default();
         root2.insert("/", Some("/www/var/html".to_string()));
         root2.insert("/team", Some("/www/var/html/team".to_string()));
         root2.insert("/teams", Some("/www/var/html/teams".to_string()));
