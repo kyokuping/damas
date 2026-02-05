@@ -123,7 +123,7 @@ where
                 index: vec!["index.html".to_string(), "index.htm".to_string()],
                 ty: Some(LocationConfigType::Prefix),
             }],
-            error_page: vec![ErrorPage {
+            error_pages: vec![ErrorPage {
                 codes: vec![500, 502, 503, 504],
                 path: Path::new("/50x.html").to_path_buf(),
             }],

@@ -17,7 +17,7 @@ pub struct ServerConfig {
     #[knus(children(name = "location"))]
     pub locations: Vec<LocationConfig>,
     #[knus(children(name = "error-page"))]
-    pub error_page: Vec<ErrorPage>,
+    pub error_pages: Vec<ErrorPage>,
     #[knus(child, unwrap(argument))]
     pub connection_buffer_size: usize,
     #[knus(child, unwrap(argument))]
@@ -265,7 +265,7 @@ mod tests {
                             ty: Some(LocationConfigType::Exact),
                         },
                     ],
-                    error_page: vec![ErrorPage {
+                    error_pages: vec![ErrorPage {
                         codes: vec![500, 502, 503, 504],
                         path: Path::new("/50x.html").to_path_buf(),
                     },],
