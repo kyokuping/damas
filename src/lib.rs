@@ -61,7 +61,16 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         ));
     }
     if let Some(path_str) = request.path {
-        let path = sanitize_path(path_str).ok_or(anyhow!("invalid path: {path_str}"))?;
+        let base_root = context
+            .config
+            .server
+            .locations
+            .iter()
+            .find(|loc| loc.path == PathBuf::from("/"))
+            .map(|loc| loc.root.clone())
+            .ok_or(anyhow!("impossible roo"))?;
+
+        let path = sanitize_path(path_str, base_root).ok_or(anyhow!("invalid path: {path_str}"))?;
 
         let file = match File::open(&path).await {
             Ok(file) => file,
@@ -110,8 +119,8 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
-pub fn sanitize_path(raw_path: &str) -> Option<PathBuf> {
-    let decoded_path = urlencoding::decode(raw_path).ok()?;
+pub fn sanitize_path(request_path: &str, base_dir: PathBuf) -> Option<PathBuf> {
+    let decoded_path = urlencoding::decode(request_path).ok()?;
     let mut clean_path = PathBuf::new();
     let components = Path::new(decoded_path.as_ref()).components();
     for component in components {
@@ -129,7 +138,7 @@ pub fn sanitize_path(raw_path: &str) -> Option<PathBuf> {
             }
         }
     }
-    let final_path = Path::new("/var/www/html").join(clean_path);
+    let final_path = base_dir.join(clean_path);
     Some(final_path)
 }
 

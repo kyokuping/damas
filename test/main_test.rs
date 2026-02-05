@@ -10,22 +10,25 @@ use std::path::PathBuf;
 
 #[test]
 fn test_sanitize_path_valid() {
+    let base_root = PathBuf::from("/var/www/html");
     let path = "/index.html";
-    let sanitized = sanitize_path(path);
+    let sanitized = sanitize_path(path, base_root);
     assert_eq!(sanitized, Some(PathBuf::from("/var/www/html/index.html")));
 }
 
 #[test]
 fn test_sanitize_path_directory_traversal() {
+    let base_root = PathBuf::from("/var/www/html");
     let path = "/../../../../etc/passwd";
-    let sanitized = sanitize_path(path);
+    let sanitized = sanitize_path(path, base_root);
     assert_eq!(sanitized, None);
 }
 
 #[test]
 fn test_sanitize_path_encoded() {
+    let base_root = PathBuf::from("/var/www/html");
     let path = "/%2E%2E/%2E%2E/etc/passwd";
-    let sanitized = sanitize_path(path);
+    let sanitized = sanitize_path(path, base_root);
     assert_eq!(sanitized, None);
 }
 
