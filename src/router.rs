@@ -3,7 +3,7 @@ use crate::config::LocationConfigType;
 use std::path::Path;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum MatchType {
+pub enum MatchType {
     Exact,
     Prefix,
 }

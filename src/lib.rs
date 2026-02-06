@@ -12,6 +12,7 @@ use std::path::{Component, PathBuf};
 
 pub mod config;
 pub mod router;
+pub mod server;
 
 #[derive(Debug)]
 pub struct ServerContext<'a> {
