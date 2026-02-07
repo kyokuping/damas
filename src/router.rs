@@ -1,6 +1,6 @@
 use crate::Config;
 use crate::config::LocationConfigType;
-use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MatchType {
@@ -8,12 +8,48 @@ pub enum MatchType {
     Prefix,
 }
 
+// Destination metadata
+#[derive(Clone, Debug, PartialEq)]
+pub struct RouterHandler {
+    pub root: Arc<str>,
+    pub matched_path: Arc<str>,
+    pub index: Arc<[String]>,
+    pub match_type: MatchType,
+}
+
+impl Default for RouterHandler {
+    fn default() -> Self {
+        Self {
+            root: Arc::from(""),
+            matched_path: Arc::from("/"),
+            index: Arc::from([]),
+            match_type: MatchType::Prefix,
+        }
+    }
+}
+
+impl RouterHandler {
+    pub fn new(root: &str, matched_path: &str, index: Vec<String>) -> Self {
+        Self {
+            root: Arc::from(root),
+            matched_path: Arc::from(matched_path),
+            index: index.into(),
+            match_type: MatchType::Prefix,
+        }
+    }
+    pub fn with_match_type(mut self, match_type: MatchType) -> Self {
+        self.match_type = match_type;
+        self
+    }
+}
+
+/// Segment in the Radix Tree
 #[derive(Debug)]
 pub struct RouterNode {
     path: String,
     children: Vec<RouterNode>,
     match_type: MatchType,
-    handler: Option<String>,
+    handler: Option<RouterHandler>,
 }
 
 impl Default for RouterNode {
@@ -23,7 +59,7 @@ impl Default for RouterNode {
 }
 
 impl RouterNode {
-    fn new(path: &str, match_type: MatchType, handler: Option<String>) -> Self {
+    fn new(path: &str, match_type: MatchType, handler: Option<RouterHandler>) -> Self {
         Self {
             path: path.to_string(),
             children: Vec::with_capacity(0),
@@ -32,7 +68,7 @@ impl RouterNode {
         }
     }
 
-    fn insert(&mut self, full_path: &str, match_type: MatchType, handler: Option<String>) {
+    fn insert(&mut self, full_path: &str, match_type: MatchType, handler: Option<RouterHandler>) {
         for child in self.children.iter_mut() {
             let Some(edge_char) = child.path.chars().next() else {
                 continue;
@@ -78,11 +114,11 @@ impl RouterNode {
         self.children.push(new_child);
     }
 
-    pub fn search(&self, query_path: &str) -> Option<&String> {
+    pub fn search(&self, query_path: &str) -> Option<RouterHandler> {
         for child in &self.children {
             if query_path.starts_with(&child.path) {
                 if query_path.len() == child.path.len() {
-                    return child.handler.as_ref();
+                    return child.handler.clone();
                 }
                 let remaining_path = &query_path[child.path.len()..];
                 if let Some(handler) = child.search(remaining_path) {
@@ -90,7 +126,7 @@ impl RouterNode {
                 }
 
                 if child.match_type == MatchType::Prefix && child.handler.is_some() {
-                    return child.handler.as_ref();
+                    return child.handler.clone();
                 } else {
                     println!("{:?}", child);
                 }
@@ -104,6 +140,7 @@ impl RouterNode {
         for loc in config.server.locations.iter() {
             let path = loc.path.to_string_lossy();
             let root = loc.root.to_string_lossy();
+            let index = &loc.index;
             let match_type = match loc.ty {
                 Some(LocationConfigType::Exact) => MatchType::Exact,
                 Some(LocationConfigType::Prefix) => MatchType::Prefix,
@@ -114,7 +151,11 @@ impl RouterNode {
             router.insert(
                 &path,
                 match_type,
-                Path::new(root.as_ref()).to_str().map(|s| s.to_string()),
+                Some(RouterHandler::new(
+                    root.as_ref(),
+                    path.as_ref(),
+                    index.to_vec(),
+                )),
             );
             println!("Route registered: {}", path);
         }
@@ -147,20 +188,40 @@ mod tests {
         root.insert(
             "/home",
             MatchType::Prefix,
-            Some("/www/var/html/home".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/home",
+                vec!["home.html".to_string()],
+            )),
         );
+
         root.insert(
             "/about",
             MatchType::Prefix,
-            Some("/www/var/html/about".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/about",
+                vec!["about.html".to_string()],
+            )),
         );
+
         assert_eq!(
             root.search("/home"),
-            Some(&"/www/var/html/home".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/home"),
+                index: Arc::from(vec![String::from("home.html")]),
+                match_type: MatchType::Prefix
+            })
         );
         assert_eq!(
             root.search("/about"),
-            Some(&"/www/var/html/about".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/about"),
+                index: Arc::from(vec![String::from("about.html")]),
+                match_type: MatchType::Prefix
+            })
         );
         assert_eq!(root.search("/"), None);
     }
@@ -168,119 +229,276 @@ mod tests {
     #[test]
     fn test_router_split_node_simple() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/home",
             MatchType::Prefix,
-            Some("/www/var/html/home".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/home",
+                vec!["home.html".to_string()],
+            )),
         );
         root.insert(
             "/homepage",
             MatchType::Prefix,
-            Some("/www/var/html/homepage".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/homepage",
+                vec!["homepage.html".to_string()],
+            )),
         );
+
         assert_eq!(
             root.search("/home"),
-            Some(&"/www/var/html/home".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/home"),
+                index: Arc::from(vec![String::from("home.html")]),
+                match_type: MatchType::Prefix
+            })
         );
         assert_eq!(
             root.search("/homepage"),
-            Some(&"/www/var/html/homepage".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/homepage"),
+                index: Arc::from(vec![String::from("homepage.html")]),
+                match_type: MatchType::Prefix
+            })
         );
         assert_eq!(
             root.search("/home/page"),
-            Some(&"/www/var/html/home".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/home"),
+                index: Arc::from(vec![String::from("home.html")]),
+                match_type: MatchType::Prefix
+            })
         );
     }
 
     #[test]
     fn test_router_split_node_complex() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/apple",
             MatchType::Prefix,
-            Some("/www/var/html/apple".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/apple",
+                vec!["apple.html".to_string()],
+            )),
         );
         root.insert(
             "/apricot",
             MatchType::Prefix,
-            Some("/www/var/html/apricot".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/apricot",
+                vec!["apricot.html".to_string()],
+            )),
         );
         root.insert(
             "/app",
             MatchType::Prefix,
-            Some("/www/var/html/app".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/app",
+                vec!["app.html".to_string()],
+            )),
         );
+
         assert_eq!(
             root.search("/apple"),
-            Some(&"/www/var/html/apple".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/apple"),
+                index: Arc::from(vec![String::from("apple.html")]),
+                match_type: MatchType::Prefix
+            })
         );
         assert_eq!(
             root.search("/apricot"),
-            Some(&"/www/var/html/apricot".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/apricot"),
+                index: Arc::from(vec![String::from("apricot.html")]),
+                match_type: MatchType::Prefix
+            })
         );
-        assert_eq!(root.search("/app"), Some(&"/www/var/html/app".to_string()));
-        assert_eq!(root.search("/ap"), Some(&"/www/var/html".to_string()));
+        assert_eq!(
+            root.search("/app"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/app"),
+                index: Arc::from(vec![String::from("app.html")]),
+                match_type: MatchType::Prefix,
+            }),
+        );
+        assert_eq!(
+            root.search("/ap"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/"),
+                index: Arc::from(vec![String::from("index.html")]),
+                match_type: MatchType::Prefix,
+            }),
+        );
     }
 
     #[test]
     fn test_router_deep_path() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/a/b/c",
             MatchType::Prefix,
-            Some("/www/var/html/a/b/c".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/a/b/c",
+                vec!["c.html".to_string()],
+            )),
         );
         root.insert(
             "/a/b",
             MatchType::Prefix,
-            Some("/www/var/html/a/b".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/a/b",
+                vec!["b.html".to_string()],
+            )),
         );
         root.insert(
             "/x/y/z/w",
             MatchType::Prefix,
-            Some("/www/var/html/x/y/z/w".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/x/y/z/w",
+                vec!["w.html".to_string()],
+            )),
         );
 
         assert_eq!(
             root.search("/a/b/c"),
-            Some(&"/www/var/html/a/b/c".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/a/b/c"),
+                index: Arc::from(vec![String::from("c.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
-        assert_eq!(root.search("/a/b"), Some(&"/www/var/html/a/b".to_string()));
+        assert_eq!(
+            root.search("/a/b"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/a/b"),
+                index: Arc::from(vec![String::from("b.html")]),
+                match_type: MatchType::Prefix,
+            })
+        );
         assert_eq!(
             root.search("/x/y/z/w"),
-            Some(&"/www/var/html/x/y/z/w".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/x/y/z/w"),
+                index: Arc::from(vec![String::from("w.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
-        assert_eq!(root.search("/a"), Some(&"/www/var/html".to_string()));
         assert_eq!(
-            root.search("/a/b/c/d"),
-            Some(&"/www/var/html/a/b/c".to_string())
+            root.search("/a"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/"),
+                index: Arc::from(vec![String::from("index.html")]),
+                match_type: MatchType::Prefix
+            })
+        );
+        assert_eq!(
+            root.search("/a/b/c"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/a/b/c"),
+                index: Arc::from(vec![String::from("c.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
     }
 
     #[test]
     fn test_router_fallback_to_root() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/users",
             MatchType::Prefix,
-            Some("/www/var/html/users".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/users",
+                vec!["users.html".to_string()],
+            )),
         );
 
         assert_eq!(
             root.search("/unknown/path"),
-            Some(&"/www/var/html".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/"),
+                index: Arc::from(vec![String::from("index.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
         assert_eq!(
             root.search("/users"),
-            Some(&"/www/var/html/users".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/users"),
+                index: Arc::from(vec![String::from("users.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
         assert_eq!(
             root.search("/users/profile/edit"),
-            Some(&"/www/var/html/users".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/users"),
+                index: Arc::from(vec![String::from("users.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
     }
 
@@ -290,86 +508,196 @@ mod tests {
         root.insert(
             "/",
             MatchType::Prefix,
-            Some("/www/var/html/index.html".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
         );
         assert_eq!(
             root.search("/"),
-            Some(&"/www/var/html/index.html".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/"),
+                index: Arc::from(vec![String::from("index.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
 
         root.insert(
             "/foo",
             MatchType::Prefix,
-            Some("/www/var/html/foo".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/foo",
+                vec!["foo.html".to_string()],
+            )),
         );
-        assert_eq!(root.search("/foo"), Some(&"/www/var/html/foo".to_string()));
+        assert_eq!(
+            root.search("/foo"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/foo"),
+                index: Arc::from(vec![String::from("foo.html")]),
+                match_type: MatchType::Prefix,
+            })
+        );
         assert_eq!(
             root.search("/"),
-            Some(&"/www/var/html/index.html".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/"),
+                index: Arc::from(vec![String::from("index.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
     }
 
     #[test]
     fn test_router_overwrite_handler() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/path",
             MatchType::Prefix,
-            Some("/www/var/html/v1".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/path",
+                vec!["path.html".to_string()],
+            )),
         );
-        assert_eq!(root.search("/path"), Some(&"/www/var/html/v1".to_string()));
+        assert_eq!(
+            root.search("/path"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/path"),
+                index: Arc::from(vec![String::from("path.html")]),
+                match_type: MatchType::Prefix,
+            })
+        );
 
         root.insert(
             "/path",
             MatchType::Prefix,
-            Some("/www/var/html/v2".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/path",
+                vec!["path_v2.html".to_string()],
+            )),
         );
-        assert_eq!(root.search("/path"), Some(&"/www/var/html/v2".to_string()));
+        assert_eq!(
+            root.search("/path"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/path"),
+                index: Arc::from(vec![String::from("path_v2.html")]),
+                match_type: MatchType::Prefix,
+            })
+        );
     }
 
     #[test]
     fn test_router_common_prefix_split() {
         let mut root = RouterNode::default();
-        root.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
         root.insert(
             "/teams",
             MatchType::Exact,
-            Some("/www/var/html/teams".to_string()),
+            Some(
+                RouterHandler::new("/www/var/html", "/teams", vec!["teams.html".to_string()])
+                    .with_match_type(MatchType::Exact),
+            ),
         );
         root.insert(
             "/team",
             MatchType::Exact,
-            Some("/www/var/html/team".to_string()),
+            Some(
+                RouterHandler::new("/www/var/html", "/team", vec!["team.html".to_string()])
+                    .with_match_type(MatchType::Exact),
+            ),
         );
         assert_eq!(
             root.search("/team"),
-            Some(&"/www/var/html/team".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/team"),
+                index: Arc::from(vec![String::from("team.html")]),
+                match_type: MatchType::Exact,
+            })
         );
         assert_eq!(
             root.search("/teams"),
-            Some(&"/www/var/html/teams".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/teams"),
+                index: Arc::from(vec![String::from("teams.html")]),
+                match_type: MatchType::Exact,
+            })
         );
 
         let mut root2 = RouterNode::default();
-        root2.insert("/", MatchType::Prefix, Some("/www/var/html".to_string()));
+        root2.insert(
+            "/",
+            MatchType::Prefix,
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/",
+                vec!["index.html".to_string()],
+            )),
+        );
+
         root2.insert(
             "/team",
             MatchType::Prefix,
-            Some("/www/var/html/team".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/team",
+                vec!["team.html".to_string()],
+            )),
         );
         root2.insert(
             "/teams",
             MatchType::Prefix,
-            Some("/www/var/html/teams".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/teams",
+                vec!["teams.html".to_string()],
+            )),
         );
+
         assert_eq!(
             root2.search("/team"),
-            Some(&"/www/var/html/team".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/team"),
+                index: Arc::from(vec![String::from("team.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
         assert_eq!(
             root2.search("/teams"),
-            Some(&"/www/var/html/teams".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/teams"),
+                index: Arc::from(vec![String::from("teams.html")]),
+                match_type: MatchType::Prefix,
+            })
         );
     }
 
@@ -379,25 +707,58 @@ mod tests {
         root.insert(
             "/exact",
             MatchType::Exact,
-            Some("exact_handler".to_string()),
+            Some(
+                RouterHandler::new("/www/var/html", "/exact", vec!["exact.html".to_string()])
+                    .with_match_type(MatchType::Exact),
+            ),
         );
         root.insert(
             "/prefix",
             MatchType::Prefix,
-            Some("prefix_handler".to_string()),
+            Some(RouterHandler::new(
+                "/www/var/html",
+                "/prefix",
+                vec!["prefix.html".to_string()],
+            )),
         );
 
-        assert_eq!(root.search("/exact"), Some(&"exact_handler".to_string()));
+        assert_eq!(
+            root.search("/exact"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/exact"),
+                index: Arc::from(vec![String::from("exact.html")]),
+                match_type: MatchType::Exact,
+            })
+        );
         assert_eq!(root.search("/exact/subpath"), None);
 
-        assert_eq!(root.search("/prefix"), Some(&"prefix_handler".to_string()));
+        assert_eq!(
+            root.search("/prefix"),
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/prefix"),
+                index: Arc::from(vec![String::from("prefix.html")]),
+                match_type: MatchType::Prefix,
+            })
+        );
         assert_eq!(
             root.search("/prefix/subpath"),
-            Some(&"prefix_handler".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/prefix"),
+                index: Arc::from(vec![String::from("prefix.html")]),
+                match_type: MatchType::Prefix,
+            })
         ); // Should match subpath
         assert_eq!(
             root.search("/prefix/another/subpath"),
-            Some(&"prefix_handler".to_string())
+            Some(RouterHandler {
+                root: Arc::from("/www/var/html"),
+                matched_path: Arc::from("/prefix"),
+                index: Arc::from(vec![String::from("prefix.html")]),
+                match_type: MatchType::Prefix,
+            })
         ); // Should match deeper subpath
 
         // Test non-matching paths

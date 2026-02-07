@@ -69,7 +69,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             .router
             .search(path_str)
             .ok_or(anyhow!("No matching route found for path: {}", path_str))?;
-        let base_root = PathBuf::from(matched_handler);
+        let base_root = PathBuf::from(&*matched_handler.root);
         if base_root.is_dir() {
             let index_list: Option<&Vec<String>> = context
                 .config

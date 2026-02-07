@@ -56,7 +56,9 @@ impl Server {
 mod tests {
     use super::*;
     use crate::config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig};
+    use crate::router::{MatchType, RouterHandler};
     use std::path::{Path, PathBuf};
+    use std::sync::Arc;
 
     fn create_mock_config<F>(modifier: F) -> Config
     where
@@ -132,13 +134,26 @@ mod tests {
         assert!(res_img.is_some());
         assert_eq!(
             res_img.unwrap(),
-            "/www/images",
+            RouterHandler {
+                root: Arc::from("/www/images"),
+                matched_path: Arc::from("/static/images"),
+                index: Arc::from(vec![String::from("image.jpg")]),
+                match_type: MatchType::Prefix,
+            },
             "Should match the longest prefix (/static/images)"
         );
 
         let res_static = server.router.search("/static/style.css");
         assert!(res_static.is_some());
-        assert_eq!(res_static.unwrap(), "/www/static");
+        assert_eq!(
+            res_static.unwrap(),
+            RouterHandler {
+                root: Arc::from("/www/static"),
+                matched_path: Arc::from("/static"),
+                index: Arc::from(vec![String::from("static.html")]),
+                match_type: MatchType::Prefix,
+            }
+        );
 
         let res_root = server.router.search("/unknown/path");
         assert!(res_root.is_some());
