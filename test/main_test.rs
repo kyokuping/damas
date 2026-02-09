@@ -1,6 +1,7 @@
 use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
+use damas::config::*;
 use damas::router::RouterNode;
 use damas::{
     ServerContext,
@@ -124,8 +125,28 @@ where
                 ty: Some(LocationConfigType::Prefix),
             }],
             error_pages: vec![ErrorPage {
-                codes: vec![500, 502, 503, 504],
-                path: Path::new("/50x.html").to_path_buf(),
+                path: Path::new("/40x.html").to_path_buf(),
+                root: Path::new("/var/www/html").to_path_buf(),
+                files: ErrorFiles {
+                    codes: vec![
+                        ErrorCodeEntry {
+                            status: 400,
+                            file: Path::new("400.html").to_path_buf(),
+                        },
+                        ErrorCodeEntry {
+                            status: 401,
+                            file: Path::new("unauthorized.html").to_path_buf(),
+                        },
+                        ErrorCodeEntry {
+                            status: 402,
+                            file: Path::new("402.html").to_path_buf(),
+                        },
+                        ErrorCodeEntry {
+                            status: 404,
+                            file: Path::new("forbidden.html").to_path_buf(),
+                        },
+                    ],
+                },
             }],
             connection_buffer_size: 4096,
             file_read_buffer_size: 8192,

@@ -55,7 +55,7 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig};
+    use crate::config::*;
     use crate::router::{MatchType, RouterHandler};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
@@ -83,8 +83,28 @@ mod tests {
                     },
                 ],
                 error_pages: vec![ErrorPage {
-                    path: Path::new("/50x.html").to_path_buf(),
-                    codes: vec![500, 502, 503, 504],
+                    path: Path::new("/40x.html").to_path_buf(),
+                    root: Path::new("/var/www/html").to_path_buf(),
+                    files: ErrorFiles {
+                        codes: vec![
+                            ErrorCodeEntry {
+                                status: 400,
+                                file: Path::new("400.html").to_path_buf(),
+                            },
+                            ErrorCodeEntry {
+                                status: 401,
+                                file: Path::new("unauthorized.html").to_path_buf(),
+                            },
+                            ErrorCodeEntry {
+                                status: 402,
+                                file: Path::new("402.html").to_path_buf(),
+                            },
+                            ErrorCodeEntry {
+                                status: 404,
+                                file: Path::new("forbidden.html").to_path_buf(),
+                            },
+                        ],
+                    },
                 }],
                 connection_buffer_size: 4096,
                 file_read_buffer_size: 8192,

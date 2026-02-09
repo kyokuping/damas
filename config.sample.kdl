@@ -9,11 +9,20 @@ server {
         root "/var/www/html"
         index "index.html" "index.htm"
     }
-    (exact)location "/50x.html" {
-        root "/var/www/html/500"
+    error-page "/40x.html" {
+        root "/var/www/html"
+        files {
+            code 400 "400.html"
+            code 401 "unauthorized.html"
+            code 402 "402.html"
+            code 404 "forbidden.html"
+        }
     }
     error-page "/50x.html" {
-        codes 500 502 503 504
+        root "/var/www/html"
+        files {
+            code 500 "500.html"
+        }
     }
 
     connection-buffer-size 4096
