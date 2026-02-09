@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::error::ErrorRegistry;
 use crate::router::RouterNode;
 use crate::{ServerContext, handle_connection};
 use compio::net::TcpListener;
@@ -7,17 +8,25 @@ use compio::runtime::spawn;
 pub struct Server {
     router: RouterNode,
     config: Config,
+    error_registry: ErrorRegistry,
 }
 
 impl Server {
-    pub fn from_config(config: Config) -> anyhow::Result<Self, anyhow::Error> {
+    pub async fn from_config(config: Config) -> anyhow::Result<Self, anyhow::Error> {
         let router = RouterNode::from_config(&config)?;
-        Ok(Self { router, config })
+        let error_registry = ErrorRegistry::from_config(&config).await?;
+
+        Ok(Self {
+            router,
+            config,
+            error_registry,
+        })
     }
 
     pub async fn run(self) -> anyhow::Result<(), anyhow::Error> {
         let config: &'static Config = Box::leak(Box::new(self.config));
         let router: &'static RouterNode = Box::leak(Box::new(self.router));
+        let error_registry: &'static ErrorRegistry = Box::leak(Box::new(self.error_registry));
         let host = &config.server.server_name;
         let port = config.server.listen;
         let listener = match TcpListener::bind(format!("{}:{}", host, port)).await {
@@ -36,8 +45,15 @@ impl Server {
                 Ok((stream, address)) => {
                     println!("Accepted connection from {}", address);
                     spawn(async move {
-                        if let Err(err) =
-                            handle_connection(stream, ServerContext { config, router }).await
+                        if let Err(err) = handle_connection(
+                            stream,
+                            ServerContext {
+                                config,
+                                router,
+                                error_registry,
+                            },
+                        )
+                        .await
                         {
                             eprintln!("Error handling connection: {}", err);
                         }
@@ -54,6 +70,7 @@ impl Server {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     use crate::config::*;
     use crate::router::{MatchType, RouterHandler};
@@ -117,8 +134,8 @@ mod tests {
         config
     }
 
-    #[test]
-    fn test_from_config_routing_registration() -> anyhow::Result<()> {
+    #[compio::test]
+    async fn test_from_config_routing_registration() -> anyhow::Result<()> {
         let config = create_mock_config(|c| {
             c.server.locations = vec![
                 LocationConfig {
@@ -148,7 +165,7 @@ mod tests {
             ];
         });
 
-        let server = Server::from_config(config)?;
+        let server = Server::from_config(config).await?;
 
         let res_img = server.router.search("/static/images/logo.png");
         assert!(res_img.is_some());

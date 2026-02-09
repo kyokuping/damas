@@ -10,5 +10,5 @@ async fn main() -> anyhow::Result<()> {
             return Err(anyhow::Error::from_boxed(report.into()));
         }
     };
-    Server::from_config(config)?.run().await
+    Server::from_config(config).await?.run().await
 }
