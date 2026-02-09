@@ -143,10 +143,7 @@ impl RouterNode {
             let index = &loc.index;
             let match_type = match loc.ty {
                 Some(LocationConfigType::Exact) => MatchType::Exact,
-                Some(LocationConfigType::Prefix) => MatchType::Prefix,
-                _ => {
-                    return Err(anyhow::anyhow!("Invalid location type: {:?}", loc.ty));
-                }
+                _ => MatchType::Prefix,
             };
             router.insert(
                 &path,

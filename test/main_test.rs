@@ -2,6 +2,7 @@ use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
 use damas::config::*;
+use damas::error::ErrorRegistry;
 use damas::router::RouterNode;
 use damas::{
     ServerContext,
@@ -110,7 +111,7 @@ impl AsyncWrite for RwMock {
     }
 }
 
-fn create_mock_context<F>(modifier: F) -> (Config, RouterNode)
+async fn create_mock_context<F>(modifier: F) -> (Config, RouterNode, ErrorRegistry)
 where
     F: FnOnce(&mut Config),
 {
@@ -156,24 +157,30 @@ where
     modifier(&mut config);
 
     let router = RouterNode::from_config(&config).unwrap();
+    let error_registry = match ErrorRegistry::from_config(&config).await {
+        Ok(registry) => registry,
+        Err(err) => panic!("Failed to create error registry: {}", err),
+    };
 
-    (config, router)
+    (config, router, error_registry)
 }
 
 #[compio::test]
 async fn test_handle_connection_invalid_request() {
     let mut stream = RwMock::new(b"GET HTTP/1.1\r\n\r\n"); // missing path\
-    let (config, router) = create_mock_context(|c| {
+    let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
             ty: Some(LocationConfigType::Prefix),
             root: PathBuf::from("/www/root"),
             index: vec![],
         }]
-    });
+    })
+    .await;
     let config = ServerContext {
         config: &config,
         router: &router,
+        error_registry: &error_registry,
     };
     let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
@@ -184,22 +191,25 @@ async fn test_handle_connection_invalid_request() {
         "Expected 400 Bad Request, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
+    assert_eq!(stream.write_buf, error_registry.build_full_response(400));
 }
 
 #[compio::test]
 async fn test_handle_connection_unsupported_method() {
     let mut stream = RwMock::new(b"POST /not_found HTTP/1.1\r\n\r\n");
-    let (config, router) = create_mock_context(|c| {
+    let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
             ty: Some(LocationConfigType::Prefix),
             root: PathBuf::from("/www/root"),
             index: vec![],
         }];
-    });
+    })
+    .await;
     let config = ServerContext {
         config: &config,
         router: &router,
+        error_registry: &error_registry,
     };
     let result = handle_connection(&mut stream, config).await;
     assert!(result.is_err());
@@ -210,6 +220,7 @@ async fn test_handle_connection_unsupported_method() {
         "Expected 405 Method Not Allowed, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
+    assert_eq!(stream.write_buf, error_registry.build_full_response(405));
 }
 
 #[compio::test]
@@ -219,17 +230,19 @@ async fn test_handle_connection_ok() {
     let file_path = dir.path().join("index.html");
     File::create(&file_path).unwrap();
 
-    let (config, router) = create_mock_context(|c| {
+    let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
             ty: Some(LocationConfigType::Prefix),
             root: dir.path().to_path_buf(),
             index: vec!["index.html".to_string(), "index2.html".to_string()],
         }];
-    });
+    })
+    .await;
     let config = ServerContext {
         config: &config,
         router: &router,
+        error_registry: &error_registry,
     };
     let result = handle_connection(&mut stream, config).await;
     assert!(
@@ -256,17 +269,19 @@ async fn test_index() {
     let file_path = dir.path().join("index.html");
     File::create(&file_path).unwrap();
 
-    let (config, router) = create_mock_context(|c| {
+    let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
             ty: Some(LocationConfigType::Prefix),
             root: dir.path().to_path_buf(),
             index: vec!["index.html".to_string(), "index2.html".to_string()],
         }];
-    });
+    })
+    .await;
     let config = ServerContext {
         config: &config,
         router: &router,
+        error_registry: &error_registry,
     };
     let result = handle_connection(&mut stream, config).await;
 

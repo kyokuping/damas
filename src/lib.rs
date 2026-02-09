@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::error::ErrorRegistry;
 use crate::router::RouterNode;
 use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
@@ -11,6 +12,7 @@ use std::path::Path;
 use std::path::{Component, PathBuf};
 
 pub mod config;
+pub mod error;
 pub mod router;
 pub mod server;
 
@@ -18,6 +20,7 @@ pub mod server;
 pub struct ServerContext<'a> {
     pub config: &'a Config,
     pub router: &'a RouterNode,
+    pub error_registry: &'a ErrorRegistry,
 }
 
 pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
@@ -43,7 +46,8 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             Ok(httparse::Status::Complete(_)) => break,
             Ok(httparse::Status::Partial) => continue,
             Err(_) => {
-                let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+                //let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+                let response = context.error_registry.build_full_response(400);
                 buf_try!(@try stream.write_all(response).await);
                 return Err(anyhow!("Failed to parse request"));
             }
@@ -57,7 +61,8 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         .expect("Buffer was previously verified as complete");
 
     if request.method != Some("GET") {
-        let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+        //let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
+        let response = context.error_registry.build_full_response(405);
         buf_try!(@try stream.write_all(response).await);
         return Err(anyhow!(
             "Unsupported HTTP method: {}",
@@ -65,10 +70,14 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         ));
     }
     if let Some(mut path_str) = request.path {
-        let matched_handler = context
-            .router
-            .search(path_str)
-            .ok_or(anyhow!("No matching route found for path: {}", path_str))?;
+        let matched_handler = match context.router.search(path_str) {
+            Some(handler) => handler,
+            None => {
+                let response = context.error_registry.build_full_response(404);
+                buf_try!(@try stream.write_all(response).await);
+                return Err(anyhow!("No matching route found for path: {}", path_str));
+            }
+        };
         let base_root = PathBuf::from(&*matched_handler.root);
         if base_root.is_dir() {
             let index_list: Option<&Vec<String>> = context
@@ -93,13 +102,14 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             Ok(file) => file,
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
-                    let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                    //let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+                    let response = context.error_registry.build_full_response(404);
                     buf_try!(@try stream.write_all(response).await);
                     return Err(err.into());
                 }
                 _ => {
-                    let response =
-                        b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+                    //let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+                    let response = context.error_registry.build_full_response(500);
                     buf_try!(@try stream.write_all(response).await);
                     return Err(err.into());
                 }
