@@ -113,8 +113,24 @@ impl LocationConfig {
 pub struct ErrorPage {
     #[knus(argument)]
     pub path: PathBuf,
-    #[knus(child, unwrap(arguments))]
-    pub codes: Vec<u16>,
+    #[knus(child, unwrap(argument))]
+    pub root: PathBuf,
+    #[knus(child)]
+    pub files: ErrorFiles,
+}
+
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
+pub struct ErrorFiles {
+    #[knus(children(name = "code"))]
+    pub codes: Vec<ErrorCodeEntry>,
+}
+
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
+pub struct ErrorCodeEntry {
+    #[knus(argument)]
+    pub status: u16,
+    #[knus(argument)]
+    pub file: PathBuf,
 }
 
 impl Config {
@@ -226,20 +242,27 @@ mod tests {
                 listen 80
                 server-name "localhost"
                 location "/" {
-                    root "/usr/share/nginx/html"
+                    root "/var/www/html"
                     index "index.html" "index.htm"
                 }
-                error-page "/50x.html" {
-                  codes 500 502 503 504
+                location "/location" {
+                    root "/var/www/html"
+                    index "index.html" "index.htm"
                 }
-                (exact)location "/50x.html" {
-                    root "/usr/share/nginx/html"
+                error-page "/40x.html" {
+                    root "/var/www/html"
+                    files {
+                        code 400 "400.html"
+                        code 401 "unauthorized.html"
+                        code 402 "402.html"
+                        code 404 "forbidden.html"
+                    }
                 }
-
                 connection-buffer-size 4096
                 file-read-buffer-size 8192
                 max-header-count 64
             }
+
         "#;
         let config = match knus::parse::<Config>("config.kdl", config) {
             Ok(config) => config,
@@ -254,20 +277,40 @@ mod tests {
                     locations: vec![
                         LocationConfig {
                             path: Path::new("/").to_path_buf(),
-                            root: Path::new("/usr/share/nginx/html").to_path_buf(),
+                            root: Path::new("/var/www/html").to_path_buf(),
                             index: vec!["index.html".to_string(), "index.htm".to_string()],
                             ty: None,
                         },
                         LocationConfig {
-                            path: Path::new("/50x.html").to_path_buf(),
-                            root: Path::new("/usr/share/nginx/html").to_path_buf(),
-                            index: vec![],
-                            ty: Some(LocationConfigType::Exact),
+                            path: Path::new("/location").to_path_buf(),
+                            root: Path::new("/var/www/html").to_path_buf(),
+                            index: vec!["index.html".to_string(), "index.htm".to_string()],
+                            ty: None,
                         },
                     ],
                     error_pages: vec![ErrorPage {
-                        codes: vec![500, 502, 503, 504],
-                        path: Path::new("/50x.html").to_path_buf(),
+                        path: Path::new("/40x.html").to_path_buf(),
+                        root: Path::new("/var/www/html").to_path_buf(),
+                        files: ErrorFiles {
+                            codes: vec![
+                                ErrorCodeEntry {
+                                    status: 400,
+                                    file: Path::new("400.html").to_path_buf(),
+                                },
+                                ErrorCodeEntry {
+                                    status: 401,
+                                    file: Path::new("unauthorized.html").to_path_buf(),
+                                },
+                                ErrorCodeEntry {
+                                    status: 402,
+                                    file: Path::new("402.html").to_path_buf(),
+                                },
+                                ErrorCodeEntry {
+                                    status: 404,
+                                    file: Path::new("forbidden.html").to_path_buf(),
+                                }
+                            ]
+                        }
                     },],
                     connection_buffer_size: 4096,
                     file_read_buffer_size: 8192,
