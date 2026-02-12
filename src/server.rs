@@ -170,7 +170,7 @@ mod tests {
         let res_img = server.router.search("/static/images/logo.png");
         assert!(res_img.is_some());
         assert_eq!(
-            res_img.unwrap(),
+            res_img.unwrap().0,
             RouterHandler {
                 root: Arc::from("/www/images"),
                 matched_path: Arc::from("/static/images"),
@@ -183,7 +183,7 @@ mod tests {
         let res_static = server.router.search("/static/style.css");
         assert!(res_static.is_some());
         assert_eq!(
-            res_static.unwrap(),
+            res_static.unwrap().0,
             RouterHandler {
                 root: Arc::from("/www/static"),
                 matched_path: Arc::from("/static"),
