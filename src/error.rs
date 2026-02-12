@@ -1,5 +1,5 @@
 use crate::config::Config;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use compio::{buf::buf_try, fs::File, io::AsyncReadAtExt};
 use http::StatusCode;
 use std::{collections::HashMap, path::PathBuf};
@@ -40,25 +40,6 @@ impl ErrorRegistry {
         } else {
             get_internal_default(status)
         }
-    }
-
-    pub fn build_full_response(&self, status: u16) -> Bytes {
-        let body = self.resolve(status);
-
-        let mut res = BytesMut::with_capacity(128 + body.len());
-
-        let status_code = StatusCode::from_u16(status)
-            .ok()
-            .and_then(|code| code.canonical_reason())
-            .unwrap_or("Unknown Error");
-
-        res.extend_from_slice(format!("HTTP/1.1 {} {}\r\n", status, status_code).as_bytes());
-        res.extend_from_slice(b"Content-Type: text/html; charset=UTF-8\r\n");
-        res.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
-        res.extend_from_slice(b"Connection: close\r\n\r\n");
-        res.extend_from_slice(&body);
-
-        res.freeze()
     }
 }
 
@@ -232,36 +213,5 @@ mod tests {
         let error_registry = ErrorRegistry::from_config(&config).await.unwrap();
         assert!(!error_registry.error_pages.contains_key(&400));
         assert_eq!(error_registry.resolve(400), get_internal_default(400));
-    }
-
-    #[test]
-    fn test_build_full_response_404() {
-        let mut error_pages = std::collections::HashMap::new();
-        error_pages.insert(404, Bytes::from("<html>404 Not Found</html>"));
-
-        let registry = ErrorRegistry { error_pages };
-
-        let response = registry.build_full_response(404);
-        let res_str = String::from_utf8_lossy(&response);
-
-        assert!(res_str.starts_with("HTTP/1.1 404 Not Found\r\n"));
-
-        assert!(res_str.contains("Content-Type: text/html; charset=UTF-8\r\n"));
-        assert!(res_str.contains("Content-Length: 26\r\n"));
-        assert!(res_str.contains("Connection: close\r\n\r\n"));
-
-        assert!(res_str.ends_with("<html>404 Not Found</html>"));
-    }
-
-    #[test]
-    fn test_build_full_response_unknown_code() {
-        let registry = ErrorRegistry {
-            error_pages: std::collections::HashMap::new(),
-        };
-
-        let response = registry.build_full_response(999);
-        let res_str = String::from_utf8_lossy(&response);
-
-        assert!(res_str.contains("999 Unknown Error"));
     }
 }

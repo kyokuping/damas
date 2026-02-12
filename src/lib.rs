@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::ErrorRegistry;
+use crate::response::{error_response, response};
 use crate::router::RouterNode;
 use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
@@ -13,6 +14,7 @@ use std::sync::Arc;
 
 pub mod config;
 pub mod error;
+pub mod response;
 pub mod router;
 pub mod server;
 
@@ -50,14 +52,12 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
         let mut request = httparse::Request::new(&mut headers);
 
-        let parse_result = request.parse(&buffer);
-
-        match parse_result {
+        match request.parse(&buffer) {
             Ok(httparse::Status::Complete(_)) => break,
             Ok(httparse::Status::Partial) => continue,
             Err(_) => {
                 //let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
-                let response = context.error_registry.build_full_response(400);
+                let response = error_response(&context.error_registry, 400);
                 buf_try!(@try stream.write_all(response).await);
                 return Err(anyhow!("Failed to parse request"));
             }
@@ -72,7 +72,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
 
     if request.method != Some("GET") {
         //let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
-        let response = context.error_registry.build_full_response(405);
+        let response = error_response(&context.error_registry, 405);
         buf_try!(@try stream.write_all(response).await);
         return Err(anyhow!(
             "Unsupported HTTP method: {}",
@@ -83,7 +83,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
             Some(res) => res,
             None => {
-                let response = context.error_registry.build_full_response(404);
+                let response = error_response(&context.error_registry, 404);
                 buf_try!(@try stream.write_all(response).await);
                 return Err(anyhow!("No matching route found for path: {}", path_str));
             }
@@ -110,12 +110,12 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
                 }
             }
             if !found {
-                let response = context.error_registry.build_full_response(403);
+                let response = error_response(&context.error_registry, 403);
                 buf_try!(@try stream.write_all(response).await);
                 return Err(anyhow!("Directory listing denied: {:?}", sanitized_base));
             }
         } else if !sanitized_base.is_file() {
-            let response = context.error_registry.build_full_response(404);
+            let response = error_response(&context.error_registry, 404);
             buf_try!(@try stream.write_all(response).await);
             return Err(anyhow!("File not found: {:?}", sanitized_base));
         }
@@ -126,13 +126,13 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
                     //let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                    let response = context.error_registry.build_full_response(404);
+                    let response = error_response(&context.error_registry, 404);
                     buf_try!(@try stream.write_all(response).await);
                     return Err(err.into());
                 }
                 _ => {
                     //let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
-                    let response = context.error_registry.build_full_response(500);
+                    let response = error_response(&context.error_registry, 500);
                     buf_try!(@try stream.write_all(response).await);
                     return Err(err.into());
                 }
@@ -142,8 +142,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         let file_size = metadata.len();
         let mime_type = get_mime_bytes(&final_file_path);
 
-        let headers =
-            format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", file_size).into_bytes();
+        let headers = response(&metadata, mime_type, 200);
 
         let (_, _returned_headers) = buf_try!(@try stream.write_all(headers).await);
         let mut pos = 0;
