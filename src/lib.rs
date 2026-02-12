@@ -140,6 +140,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         };
         let metadata = file.metadata().await?;
         let file_size = metadata.len();
+        let mime_type = get_mime_bytes(&final_file_path);
 
         let headers =
             format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", file_size).into_bytes();
@@ -197,5 +198,60 @@ pub fn sanitize_path(request_path: &str, base_dir: &Path) -> Option<PathBuf> {
         Some(final_path)
     } else {
         None
+    }
+}
+pub fn get_mime_bytes(path: &std::path::Path) -> &'static [u8] {
+    let extension = path
+        .as_os_str()
+        .as_encoded_bytes()
+        .rsplitn(2, |&b| b == b'.')
+        .next()
+        .unwrap_or(b"");
+
+    match extension {
+        b"html" | b"htm" => b"text/html; charset=utf-8",
+        b"js" | b"mjs" => b"text/javascript; charset=utf-8",
+        b"css" => b"text/css",
+        b"json" => b"application/json",
+        b"png" => b"image/png",
+        b"jpg" | b"jpeg" => b"image/jpeg",
+        b"gif" => b"image/gif",
+        b"svg" => b"image/svg+xml",
+        b"ico" => b"image/x-icon",
+        b"txt" => b"text/plain; charset=utf-8",
+        b"woff2" => b"font/woff2",
+        _ => b"application/octet-stream",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_get_mime_bytes() {
+        assert_eq!(
+            get_mime_bytes(Path::new("index.html")),
+            b"text/html; charset=utf-8"
+        );
+        assert_eq!(
+            str::from_utf8(get_mime_bytes(Path::new("script.js"))).unwrap(),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(get_mime_bytes(Path::new("styles.css")), b"text/css");
+        assert_eq!(get_mime_bytes(Path::new("image.png")), b"image/png");
+
+        // 확장자가 없는 경우
+        assert_eq!(
+            get_mime_bytes(Path::new("README")),
+            b"application/octet-stream"
+        );
+
+        // 알 수 없는 확장자
+        assert_eq!(
+            str::from_utf8(get_mime_bytes(Path::new("test.xyz"))).unwrap(),
+            "application/octet-stream"
+        );
     }
 }
