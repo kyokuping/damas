@@ -177,12 +177,12 @@ async fn test_handle_connection_invalid_request() {
         }]
     })
     .await;
-    let config = ServerContext {
+    let context = ServerContext {
         config: &config,
         router: &router,
         error_registry: &error_registry,
     };
-    let result = handle_connection(&mut stream, config).await;
+    let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -206,12 +206,12 @@ async fn test_handle_connection_unsupported_method() {
         }];
     })
     .await;
-    let config = ServerContext {
+    let context = ServerContext {
         config: &config,
         router: &router,
         error_registry: &error_registry,
     };
-    let result = handle_connection(&mut stream, config).await;
+    let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
         stream
@@ -239,12 +239,12 @@ async fn test_handle_connection_ok() {
         }];
     })
     .await;
-    let config = ServerContext {
+    let context = ServerContext {
         config: &config,
         router: &router,
         error_registry: &error_registry,
     };
-    let result = handle_connection(&mut stream, config).await;
+    let result = handle_connection(&mut stream, context).await;
     assert!(
         result.is_ok(),
         "Expected Ok, got: {:?}",
@@ -278,12 +278,12 @@ async fn test_index() {
         }];
     })
     .await;
-    let config = ServerContext {
+    let context = ServerContext {
         config: &config,
         router: &router,
         error_registry: &error_registry,
     };
-    let result = handle_connection(&mut stream, config).await;
+    let result = handle_connection(&mut stream, context).await;
 
     assert!(
         result.is_ok(),
