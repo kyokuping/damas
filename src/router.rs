@@ -119,22 +119,22 @@ impl RouterNode {
             if query_path.starts_with(&child.path) {
                 let remaining_path = &query_path[child.path.len()..];
 
-                if remaining_path.is_empty() {
-                    if let Some(h) = &child.handler {
-                        return Some((h.clone(), ""));
-                    }
+                if remaining_path.is_empty()
+                    && let Some(h) = &child.handler
+                {
+                    return Some((h.clone(), ""));
                 }
 
-                if !remaining_path.is_empty() {
-                    if let Some(res) = child.search(remaining_path) {
-                        return Some(res);
-                    }
+                if !remaining_path.is_empty()
+                    && let Some(res) = child.search(remaining_path)
+                {
+                    return Some(res);
                 }
 
-                if child.match_type == MatchType::Prefix {
-                    if let Some(h) = &child.handler {
-                        return Some((h.clone(), remaining_path));
-                    }
+                if child.match_type == MatchType::Prefix
+                    && let Some(h) = &child.handler
+                {
+                    return Some((h.clone(), remaining_path));
                 }
 
                 println!(

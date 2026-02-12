@@ -17,7 +17,7 @@ use tempfile::tempdir;
 fn test_sanitize_path_valid() {
     let base_root = PathBuf::from("/var/www/html");
     let path = "/index.html";
-    let sanitized = sanitize_path(path, base_root);
+    let sanitized = sanitize_path(path, &base_root);
     assert_eq!(sanitized, Some(PathBuf::from("/var/www/html/index.html")));
 }
 
@@ -25,7 +25,7 @@ fn test_sanitize_path_valid() {
 fn test_sanitize_path_directory_traversal() {
     let base_root = PathBuf::from("/var/www/html");
     let path = "/../../../../etc/passwd";
-    let sanitized = sanitize_path(path, base_root);
+    let sanitized = sanitize_path(path, &base_root);
     assert_eq!(sanitized, None);
 }
 
@@ -33,7 +33,7 @@ fn test_sanitize_path_directory_traversal() {
 fn test_sanitize_path_encoded() {
     let base_root = PathBuf::from("/var/www/html");
     let path = "/%2E%2E/%2E%2E/etc/passwd";
-    let sanitized = sanitize_path(path, base_root);
+    let sanitized = sanitize_path(path, &base_root);
     assert_eq!(sanitized, None);
 }
 
@@ -300,4 +300,23 @@ async fn test_index() {
         "Expected empty body, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
+}
+#[test]
+fn test_sanitize_path_all_cases() {
+    let base_root = PathBuf::from("/var/www/html");
+
+    let cases = vec![
+        // (입력값, 기대하는 결과값)
+        ("/index.html", Some("/var/www/html/index.html")), // Leading slash
+        ("index.html", Some("/var/www/html/index.html")),  // No leading slash
+        ("//config.kdl", Some("/var/www/html/config.kdl")), // Double slash
+        ("images/../logo.png", Some("/var/www/html/logo.png")), // Traversal
+        ("../../../etc/passwd", None),                     // Escape attempt
+    ];
+
+    for (input, expected) in cases {
+        let result = sanitize_path(input, &base_root);
+        let expected_path = expected.map(PathBuf::from);
+        assert_eq!(result, expected_path, "Failed on input: {}", input);
+    }
 }
