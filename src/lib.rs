@@ -70,8 +70,8 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
         ));
     }
     if let Some(mut path_str) = request.path {
-        let matched_handler = match context.router.search(path_str) {
-            Some(handler) => handler,
+        let (matched_handler, _remaining_path) = match context.router.search(path_str) {
+            Some(res) => res,
             None => {
                 let response = context.error_registry.build_full_response(404);
                 buf_try!(@try stream.write_all(response).await);
