@@ -3,6 +3,7 @@ use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
 use damas::config::*;
 use damas::error::ErrorRegistry;
+use damas::response::error_response;
 use damas::router::RouterNode;
 use damas::{
     ServerContext,
@@ -151,7 +152,7 @@ async fn test_handle_connection_invalid_request() {
         "Expected 400 Bad Request, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
-    assert_eq!(stream.write_buf, error_registry.build_full_response(400));
+    assert_eq!(stream.write_buf, error_response(&error_registry, 400));
 }
 
 #[compio::test]
@@ -176,7 +177,10 @@ async fn test_handle_connection_unsupported_method() {
         "Expected 405 Method Not Allowed, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
-    assert_eq!(stream.write_buf, error_registry.build_full_response(405));
+    assert_eq!(
+        stream.write_buf,
+        error_response(&error_registry, 405).as_ref()
+    );
 }
 
 #[compio::test]
