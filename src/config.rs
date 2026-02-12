@@ -2,7 +2,7 @@ use miette::{IntoDiagnostic, miette};
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(knus::Decode, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
 pub struct Config {
     #[knus(child)]
     pub server: ServerConfig,

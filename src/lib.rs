@@ -10,22 +10,33 @@ use mime_guess::{Mime, from_path};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::{Component, PathBuf};
+use std::sync::Arc;
 
 pub mod config;
 pub mod error;
 pub mod router;
 pub mod server;
 
-#[derive(Debug)]
-pub struct ServerContext<'a> {
-    pub config: &'a Config,
-    pub router: &'a RouterNode,
-    pub error_registry: &'a ErrorRegistry,
+#[derive(Clone, Debug)]
+pub struct ServerContext {
+    config: Arc<Config>,
+    router: Arc<RouterNode>,
+    error_registry: Arc<ErrorRegistry>,
+}
+
+impl ServerContext {
+    pub fn new(config: Config, router: RouterNode, registry: ErrorRegistry) -> Self {
+        Self {
+            config: Arc::new(config),
+            router: Arc::new(router),
+            error_registry: Arc::new(registry),
+        }
+    }
 }
 
 pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
     mut stream: T,
-    context: ServerContext<'a>,
+    context: ServerContext,
 ) -> anyhow::Result<()> {
     let mut buffer = Vec::with_capacity(context.config.server.connection_buffer_size);
     loop {

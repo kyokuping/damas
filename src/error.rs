@@ -4,7 +4,7 @@ use compio::{buf::buf_try, fs::File, io::AsyncReadAtExt};
 use http::StatusCode;
 use std::{collections::HashMap, path::PathBuf};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ErrorRegistry {
     pub error_pages: HashMap<u16, Bytes>,
 }
