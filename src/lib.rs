@@ -6,7 +6,6 @@ use compio::buf::{IntoInner, IoBuf, buf_try};
 use compio::fs::File;
 use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use compio::io::{AsyncReadAt, AsyncWriteExt};
-use mime_guess::{Mime, from_path};
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::{Component, PathBuf};
@@ -199,8 +198,4 @@ pub fn sanitize_path(request_path: &str, base_dir: &Path) -> Option<PathBuf> {
     } else {
         None
     }
-}
-
-pub fn get_mime_type(path: &str) -> Mime {
-    from_path(path).first_or_octet_stream()
 }

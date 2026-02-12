@@ -7,7 +7,7 @@ use damas::router::RouterNode;
 use damas::{
     ServerContext,
     config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig},
-    get_mime_type, handle_connection, sanitize_path,
+    handle_connection, sanitize_path,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -35,42 +35,6 @@ fn test_sanitize_path_encoded() {
     let path = "/%2E%2E/%2E%2E/etc/passwd";
     let sanitized = sanitize_path(path, &base_root);
     assert_eq!(sanitized, None);
-}
-
-#[test]
-fn test_get_mime_type_html() {
-    let mime = get_mime_type("index.html");
-    assert_eq!(mime, "text/html");
-}
-
-#[test]
-fn test_get_mime_type_css() {
-    let mime = get_mime_type("style.css");
-    assert_eq!(mime, "text/css");
-}
-
-#[test]
-fn test_get_mime_type_js() {
-    let mime = get_mime_type("script.js");
-    assert_eq!(mime, "text/javascript");
-}
-
-#[test]
-fn test_get_mime_type_png() {
-    let mime = get_mime_type("image.png");
-    assert_eq!(mime, "image/png");
-}
-
-#[test]
-fn test_get_mime_type_jpeg() {
-    let mime = get_mime_type("image.jpg");
-    assert_eq!(mime, "image/jpeg");
-}
-
-#[test]
-fn test_get_mime_type_unknown() {
-    let mime = get_mime_type("file.unknown");
-    assert_eq!(mime, "application/octet-stream");
 }
 
 struct RwMock {
