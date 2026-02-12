@@ -177,11 +177,7 @@ async fn test_handle_connection_invalid_request() {
         }]
     })
     .await;
-    let context = ServerContext {
-        config: &config,
-        router: &router,
-        error_registry: &error_registry,
-    };
+    let context = ServerContext::new(config, router, error_registry.clone());
     let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
@@ -206,11 +202,7 @@ async fn test_handle_connection_unsupported_method() {
         }];
     })
     .await;
-    let context = ServerContext {
-        config: &config,
-        router: &router,
-        error_registry: &error_registry,
-    };
+    let context = ServerContext::new(config, router, error_registry.clone());
     let result = handle_connection(&mut stream, context).await;
     assert!(result.is_err());
     assert!(
@@ -239,11 +231,7 @@ async fn test_handle_connection_ok() {
         }];
     })
     .await;
-    let context = ServerContext {
-        config: &config,
-        router: &router,
-        error_registry: &error_registry,
-    };
+    let context = ServerContext::new(config, router, error_registry);
     let result = handle_connection(&mut stream, context).await;
     assert!(
         result.is_ok(),
@@ -278,11 +266,7 @@ async fn test_index() {
         }];
     })
     .await;
-    let context = ServerContext {
-        config: &config,
-        router: &router,
-        error_registry: &error_registry,
-    };
+    let context = ServerContext::new(config, router, error_registry);
     let result = handle_connection(&mut stream, context).await;
 
     assert!(

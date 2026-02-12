@@ -44,7 +44,7 @@ impl RouterHandler {
 }
 
 /// Segment in the Radix Tree
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RouterNode {
     path: String,
     children: Vec<RouterNode>,

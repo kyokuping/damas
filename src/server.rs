@@ -24,37 +24,31 @@ impl Server {
     }
 
     pub async fn run(self) -> anyhow::Result<(), anyhow::Error> {
-        let config: &'static Config = Box::leak(Box::new(self.config));
-        let router: &'static RouterNode = Box::leak(Box::new(self.router));
-        let error_registry: &'static ErrorRegistry = Box::leak(Box::new(self.error_registry));
-        let host = &config.server.server_name;
-        let port = config.server.listen;
-        let listener = match TcpListener::bind(format!("{}:{}", host, port)).await {
-            Ok(listener) => {
-                println!("Server started at {}:{}", host, port);
-                listener
-            }
-            Err(err) => {
-                println!("Failed to bind to {}:{}", host, port);
-                Err(err)?
-            }
-        };
+        let Server {
+            router,
+            config,
+            error_registry,
+        } = self;
+        let context = ServerContext::new(config, router, error_registry);
+        let addr = format!(
+            "{}:{}",
+            context.config.server.server_name, context.config.server.listen
+        );
+
+        let listener = TcpListener::bind(&addr).await.map_err(|e| {
+            eprintln!("Failed to bind to {}", addr);
+            e
+        })?;
+
+        println!("Server started at {}", addr);
 
         loop {
             match listener.accept().await {
                 Ok((stream, address)) => {
                     println!("Accepted connection from {}", address);
+                    let ctx = context.clone();
                     spawn(async move {
-                        if let Err(err) = handle_connection(
-                            stream,
-                            ServerContext {
-                                config,
-                                router,
-                                error_registry,
-                            },
-                        )
-                        .await
-                        {
+                        if let Err(err) = handle_connection(stream, ctx).await {
                             eprintln!("Error handling connection: {}", err);
                         }
                     })
