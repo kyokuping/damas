@@ -69,8 +69,8 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             request.method.unwrap_or("UNKNOWN")
         ));
     }
-    if let Some(mut path_str) = request.path {
-        let (matched_handler, _remaining_path) = match context.router.search(path_str) {
+    if let Some(path_str) = request.path {
+        let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
             Some(res) => res,
             None => {
                 let response = context.error_registry.build_full_response(404);
@@ -79,26 +79,39 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             }
         };
         let base_root = PathBuf::from(&*matched_handler.root);
-        if base_root.is_dir() {
-            let index_list: Option<&Vec<String>> = context
-                .config
-                .server
-                .locations
-                .iter()
-                .find(|loc| loc.root == base_root)
-                .map(|loc| &loc.index);
+        remaining_path = remaining_path.strip_prefix("/").unwrap_or(remaining_path);
+        let sanitized_base =
+            sanitize_path(remaining_path, &base_root).ok_or(anyhow!("invalid path: {path_str}"))?;
 
-            if let Some(index) = index_list {
-                for idx in index {
-                    if base_root.join(idx).is_file() {
-                        path_str = idx;
+        let mut final_file_path = sanitized_base.clone();
+
+        if sanitized_base.is_dir() {
+            println!("direct directory: {:?}", sanitized_base);
+
+            let mut found = false;
+            {
+                for idx in matched_handler.index.iter() {
+                    let index_path = sanitized_base.join(idx);
+                    if index_path.is_file() {
+                        final_file_path = index_path;
+                        found = true;
                         break;
                     }
                 }
             }
+            if !found {
+                let response = context.error_registry.build_full_response(403);
+                buf_try!(@try stream.write_all(response).await);
+                return Err(anyhow!("Directory listing denied: {:?}", sanitized_base));
+            }
+        } else if !sanitized_base.is_file() {
+            let response = context.error_registry.build_full_response(404);
+            buf_try!(@try stream.write_all(response).await);
+            return Err(anyhow!("File not found: {:?}", sanitized_base));
         }
-        let path = sanitize_path(path_str, base_root).ok_or(anyhow!("invalid path: {path_str}"))?;
-        let file = match File::open(&path).await {
+
+        println!("Path: {:?}", final_file_path);
+        let file = match File::open(&final_file_path).await {
             Ok(file) => file,
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
@@ -146,13 +159,15 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
     Ok(())
 }
 
-pub fn sanitize_path(request_path: &str, base_dir: PathBuf) -> Option<PathBuf> {
+pub fn sanitize_path(request_path: &str, base_dir: &Path) -> Option<PathBuf> {
     let decoded_path = urlencoding::decode(request_path).ok()?;
+
     let mut clean_path = PathBuf::new();
-    let components = Path::new(decoded_path.as_ref()).components();
-    for component in components {
+    for component in Path::new(decoded_path.as_ref()).components() {
         match component {
-            Component::Normal(c) => clean_path.push(c),
+            Component::Normal(c) => {
+                clean_path.push(c);
+            }
             Component::ParentDir => {
                 if !clean_path.pop() {
                     return None;
@@ -165,8 +180,14 @@ pub fn sanitize_path(request_path: &str, base_dir: PathBuf) -> Option<PathBuf> {
             }
         }
     }
+
     let final_path = base_dir.join(clean_path);
-    Some(final_path)
+
+    if final_path.starts_with(base_dir) {
+        Some(final_path)
+    } else {
+        None
+    }
 }
 
 pub fn get_mime_type(path: &str) -> Mime {
