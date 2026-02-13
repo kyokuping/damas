@@ -1,0 +1,45 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.3.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt -- --check
+        language: rust
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check
+        language: rust
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy -- -D warnings
+        language: rust
+        types: [rust] # type -> types 오타 수정
+        pass_filenames: false
+
+      - id: cargo-tests
+        name: cargo test
+        entry: cargo test
+        language: rust
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-shear
+        name: cargo shear
+        description: Remove unused dependencies.
+        entry: cargo shear --fix
+        language: rust
+        types: [rust]
+        pass_filenames: false
