@@ -26,7 +26,7 @@ repos:
         name: cargo clippy
         entry: cargo clippy -- -D warnings
         language: rust
-        types: [rust] # type -> types 오타 수정
+        types: [rust]
         pass_filenames: false
 
       - id: cargo-tests
