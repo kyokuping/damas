@@ -2,15 +2,17 @@
 
 
 ## Key Changes
-- [] feature:  responses.
+- [] feature:
 - [] bug fix:
-- [] refactor/optimization: 
-- 
+- [] refactor/optimization:
+- [] test:
+- [] CI:
+
 ### Details
-- 
+-
 
 ## Technical Notes
-- 
+-
 
 ## Quality Control
 
