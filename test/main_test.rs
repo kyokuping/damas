@@ -8,7 +8,7 @@ use damas::router::RouterNode;
 use damas::{
     ServerContext,
     config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig},
-    handle_connection, sanitize_path,
+    handle_request, sanitize_path,
 };
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -143,8 +143,8 @@ async fn test_handle_connection_invalid_request() {
     })
     .await;
     let context = ServerContext::new(config, router, error_registry.clone());
-    let result = handle_connection(&mut stream, context).await;
-    assert!(result.is_err());
+    let result = handle_request(&mut stream, &context).await;
+    assert!(result.unwrap().is_err());
     assert!(
         stream
             .write_buf
@@ -168,8 +168,8 @@ async fn test_handle_connection_unsupported_method() {
     })
     .await;
     let context = ServerContext::new(config, router, error_registry.clone());
-    let result = handle_connection(&mut stream, context).await;
-    assert!(result.is_err());
+    let result = handle_request(&mut stream, &context).await;
+    assert!(result.unwrap().is_err());
     assert!(
         stream
             .write_buf
@@ -200,7 +200,7 @@ async fn test_handle_connection_ok() {
     })
     .await;
     let context = ServerContext::new(config, router, error_registry);
-    let result = handle_connection(&mut stream, context).await;
+    let result = handle_request(&mut stream, &context).await;
     assert!(
         result.is_ok(),
         "Expected Ok, got: {:?}",
@@ -235,7 +235,7 @@ async fn test_index() {
     })
     .await;
     let context = ServerContext::new(config, router, error_registry);
-    let result = handle_connection(&mut stream, context).await;
+    let result = handle_request(&mut stream, &context).await;
 
     assert!(
         result.is_ok(),

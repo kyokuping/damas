@@ -35,9 +35,8 @@ impl Server {
             context.config.server.server_name, context.config.server.listen
         );
 
-        let listener = TcpListener::bind(&addr).await.map_err(|e| {
+        let listener = TcpListener::bind(&addr).await.inspect_err(|_e| {
             eprintln!("Failed to bind to {}", addr);
-            e
         })?;
 
         println!("Server started at {}", addr);
@@ -47,12 +46,7 @@ impl Server {
                 Ok((stream, address)) => {
                     println!("Accepted connection from {}", address);
                     let ctx = context.clone();
-                    spawn(async move {
-                        if let Err(err) = handle_connection(stream, ctx).await {
-                            eprintln!("Error handling connection: {}", err);
-                        }
-                    })
-                    .detach();
+                    spawn(async move { handle_connection(stream, ctx).await }).detach();
                 }
                 Err(err) => {
                     eprintln!("Error accepting connection: {}", err);
