@@ -35,17 +35,34 @@ impl ServerContext {
     }
 }
 
-pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
+pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
     mut stream: T,
     context: ServerContext,
-) -> anyhow::Result<()> {
+) -> () {
+    match handle_request(&mut stream, &context).await {
+        Ok(Ok(())) => (),
+        Ok(Err(expected)) => {
+            println!("Expected error: {}", expected);
+        }
+        Err(err) => {
+            println!("Error handling request: {}", err);
+            let response = error_response(&context.error_registry, 500);
+            let _ = stream.write_all(response).await;
+        }
+    }
+}
+
+pub async fn handle_request<T: AsyncRead + AsyncWrite>(
+    stream: &mut T,
+    context: &ServerContext,
+) -> anyhow::Result<Result<(), String>> {
     let mut buffer = Vec::with_capacity(context.config.server.connection_buffer_size);
     loop {
         let (bytes_read, buf) = buf_try!(@try stream.append(buffer).await);
         buffer = buf;
         if bytes_read == 0 {
             println!("Connection closed by peer");
-            return Ok(());
+            return Ok(Ok(()));
         }
 
         let mut headers =
@@ -59,25 +76,23 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
                 //let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
                 let response = error_response(&context.error_registry, 400);
                 buf_try!(@try stream.write_all(response).await);
-                return Err(anyhow!("Failed to parse request"));
+                return Ok(Err("Failed to parse request".to_owned()));
             }
         }
     }
     let mut headers =
         vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
     let mut request = httparse::Request::new(&mut headers);
-    request
-        .parse(&buffer)
-        .expect("Buffer was previously verified as complete");
+    request.parse(&buffer)?;
 
     if request.method != Some("GET") {
         //let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
         let response = error_response(&context.error_registry, 405);
         buf_try!(@try stream.write_all(response).await);
-        return Err(anyhow!(
+        return Ok(Err(format!(
             "Unsupported HTTP method: {}",
             request.method.unwrap_or("UNKNOWN")
-        ));
+        )));
     }
     if let Some(path_str) = request.path {
         let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
@@ -85,7 +100,10 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             None => {
                 let response = error_response(&context.error_registry, 404);
                 buf_try!(@try stream.write_all(response).await);
-                return Err(anyhow!("No matching route found for path: {}", path_str));
+                return Ok(Err(format!(
+                    "No matching route found for path: {}",
+                    path_str
+                )));
             }
         };
         let base_root = PathBuf::from(&*matched_handler.root);
@@ -112,12 +130,15 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             if !found {
                 let response = error_response(&context.error_registry, 403);
                 buf_try!(@try stream.write_all(response).await);
-                return Err(anyhow!("Directory listing denied: {:?}", sanitized_base));
+                return Ok(Err(format!(
+                    "Directory listing denied: {:?}",
+                    sanitized_base
+                )));
             }
         } else if !sanitized_base.is_file() {
             let response = error_response(&context.error_registry, 404);
             buf_try!(@try stream.write_all(response).await);
-            return Err(anyhow!("File not found: {:?}", sanitized_base));
+            return Ok(Err(format!("File not found: {:?}", sanitized_base)));
         }
 
         println!("Path: {:?}", final_file_path);
@@ -128,13 +149,13 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
                     //let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
                     let response = error_response(&context.error_registry, 404);
                     buf_try!(@try stream.write_all(response).await);
-                    return Err(err.into());
+                    return Ok(Err(err.to_string()));
                 }
                 _ => {
                     //let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
                     let response = error_response(&context.error_registry, 500);
                     buf_try!(@try stream.write_all(response).await);
-                    return Err(err.into());
+                    return Ok(Err(err.to_string()));
                 }
             },
         };
@@ -166,7 +187,7 @@ pub async fn handle_connection<'a, T: AsyncRead + AsyncWrite>(
             pos += read_bytes as u64;
         }
     }
-    Ok(())
+    Ok(Ok(()))
 }
 
 pub fn sanitize_path(request_path: &str, base_dir: &Path) -> Option<PathBuf> {
