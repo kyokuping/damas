@@ -11,16 +11,31 @@ env:
 
 jobs:
   build_and_test:
-    name: Check, Lint and Test
+    name: Build and Test
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust 1.90.0
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: stable
+          toolchain: 1.90.0
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Tests
+        run: cargo test --verbose
+
+  lint_and_shear:
+    name: Lint and Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
           components: clippy, rustfmt
 
       - name: Rust Cache
@@ -32,5 +47,8 @@ jobs:
       - name: Clippy Lint
         run: cargo clippy -- -D warnings
 
-      - name: Run Tests
-        run: cargo test --verbose
+      - name: Install & Run cargo-shear
+
+        run: |
+          cargo install cargo-shear@1.7.0
+          cargo shear
