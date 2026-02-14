@@ -21,3 +21,9 @@ tempfile = "3.10.1"
 name = "main_test"
 path = "test/main_test.rs"
 harness = true
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+panic = "abort"
