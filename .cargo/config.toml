@@ -1,2 +1,5 @@
 [target.'cfg(target_os = "macos")']
 rustflags = ["-C", "link-arg=-Wl,-ld_classic"]
+
+[target.'cfg(target_os = "x86_64-unknown-linux-gnu")']
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
