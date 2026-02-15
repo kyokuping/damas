@@ -4,10 +4,12 @@ server {
     location "/" {
         root "/var/www/html"
         index "index.html" "index.htm"
+        autoindex true
     }
     location "/location" {
         root "/var/www/html"
         index "index.html" "index.htm"
+        autoindex true
     }
     error-page "/40x.html" {
         root "/var/www/html"

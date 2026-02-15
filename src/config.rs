@@ -26,7 +26,7 @@ pub struct ServerConfig {
     pub max_header_count: usize,
 }
 
-#[derive(knus::Decode, Clone, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
 pub struct LocationConfig {
     /// Request URI path
     #[knus(argument)]
@@ -38,6 +38,8 @@ pub struct LocationConfig {
     pub index: Vec<String>,
     #[knus(type_name)]
     pub ty: Option<LocationConfigType>,
+    #[knus(child, default = false, unwrap(argument))]
+    pub autoindex: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,6 +162,7 @@ mod tests {
             root: PathBuf::new(),
             index: vec![],
             ty: None,
+            ..Default::default()
         };
         assert!(config.is_pure_filename("file.txt"));
         assert!(config.is_pure_filename("file"));
@@ -175,6 +178,7 @@ mod tests {
             root: PathBuf::new(),
             index: vec![],
             ty: None,
+            ..Default::default()
         };
 
         assert!(
@@ -206,6 +210,7 @@ mod tests {
             root: PathBuf::from("/var/www"),
             index: vec!["index.html".to_string()],
             ty: None,
+            ..Default::default()
         };
         assert!(valid_config.validate().is_ok());
 
@@ -214,6 +219,7 @@ mod tests {
             root: PathBuf::from("/var/www"),
             index: vec!["../index.html".to_string()],
             ty: None,
+            ..Default::default()
         };
         assert!(invalid_index_config.validate().is_err());
     }
@@ -244,10 +250,12 @@ mod tests {
                 location "/" {
                     root "/var/www/html"
                     index "index.html" "index.htm"
+                    autoindex false
                 }
                 location "/location" {
                     root "/var/www/html"
                     index "index.html" "index.htm"
+                    autoindex false
                 }
                 error-page "/40x.html" {
                     root "/var/www/html"
@@ -280,12 +288,14 @@ mod tests {
                             root: Path::new("/var/www/html").to_path_buf(),
                             index: vec!["index.html".to_string(), "index.htm".to_string()],
                             ty: None,
+                            ..Default::default()
                         },
                         LocationConfig {
                             path: Path::new("/location").to_path_buf(),
                             root: Path::new("/var/www/html").to_path_buf(),
                             index: vec!["index.html".to_string(), "index.htm".to_string()],
                             ty: None,
+                            ..Default::default()
                         },
                     ],
                     error_pages: vec![ErrorPage {

@@ -79,12 +79,14 @@ mod tests {
                         root: Path::new("/www/var/html").to_path_buf(),
                         index: vec!["index.html".to_string(), "index.htm".to_string()],
                         ty: Some(LocationConfigType::Prefix),
+                        ..Default::default()
                     },
                     LocationConfig {
                         path: Path::new("/50x.html").to_path_buf(),
                         root: Path::new("/www/var/html").to_path_buf(),
                         index: vec![],
                         ty: Some(LocationConfigType::Exact),
+                        ..Default::default()
                     },
                 ],
                 error_pages: vec![ErrorPage {
@@ -131,24 +133,28 @@ mod tests {
                     ty: Some(LocationConfigType::Prefix),
                     root: PathBuf::from("/www/root"),
                     index: vec![],
+                    ..Default::default()
                 },
                 LocationConfig {
                     path: PathBuf::from("/static"),
                     ty: Some(LocationConfigType::Prefix),
                     root: PathBuf::from("/www/static"),
                     index: vec!["static.html".to_string()],
+                    ..Default::default()
                 },
                 LocationConfig {
                     path: PathBuf::from("/50x.html"),
                     ty: Some(LocationConfigType::Exact),
                     root: PathBuf::from("/www/errors"),
                     index: vec![],
+                    ..Default::default()
                 },
                 LocationConfig {
                     path: PathBuf::from("/static/images"),
                     ty: Some(LocationConfigType::Prefix),
                     root: PathBuf::from("/www/images"),
                     index: vec!["image.jpg".to_string()],
+                    ..Default::default()
                 },
             ];
         });
