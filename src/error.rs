@@ -85,12 +85,14 @@ mod tests {
                         root: Path::new("/www/var/html").to_path_buf(),
                         index: vec!["index.html".to_string(), "index.htm".to_string()],
                         ty: Some(LocationConfigType::Prefix),
+                        ..Default::default()
                     },
                     LocationConfig {
                         path: Path::new("/50x.html").to_path_buf(),
                         root: Path::new("/www/var/html").to_path_buf(),
                         index: vec![],
                         ty: Some(LocationConfigType::Exact),
+                        ..Default::default()
                     },
                 ],
                 error_pages: vec![],

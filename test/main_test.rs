@@ -89,6 +89,7 @@ where
                 root: Path::new("/www/var/html").to_path_buf(),
                 index: vec!["index.html".to_string(), "index.htm".to_string()],
                 ty: Some(LocationConfigType::Prefix),
+                ..Default::default()
             }],
             error_pages: vec![ErrorPage {
                 path: Path::new("/40x.html").to_path_buf(),
@@ -139,6 +140,7 @@ async fn test_handle_connection_invalid_request() {
             ty: Some(LocationConfigType::Prefix),
             root: PathBuf::from("/www/root"),
             index: vec![],
+            ..Default::default()
         }]
     })
     .await;
@@ -164,6 +166,7 @@ async fn test_handle_connection_unsupported_method() {
             ty: Some(LocationConfigType::Prefix),
             root: PathBuf::from("/www/root"),
             index: vec![],
+            ..Default::default()
         }];
     })
     .await;
@@ -196,6 +199,7 @@ async fn test_handle_connection_ok() {
             ty: Some(LocationConfigType::Prefix),
             root: dir.path().to_path_buf(),
             index: vec!["index.html".to_string(), "index2.html".to_string()],
+            ..Default::default()
         }];
     })
     .await;
@@ -231,6 +235,7 @@ async fn test_index() {
             ty: Some(LocationConfigType::Prefix),
             root: dir.path().to_path_buf(),
             index: vec!["index.html".to_string(), "index2.html".to_string()],
+            ..Default::default()
         }];
     })
     .await;
