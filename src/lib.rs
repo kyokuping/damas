@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::error::ErrorRegistry;
-use crate::response::{error_response, response};
+use crate::index::IndexCache;
+use crate::response::{error_response, index_page_response, response};
 use crate::router::RouterNode;
 use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
@@ -14,6 +15,7 @@ use std::sync::Arc;
 
 pub mod config;
 pub mod error;
+pub mod index;
 pub mod response;
 pub mod router;
 pub mod server;
@@ -23,14 +25,21 @@ pub struct ServerContext {
     config: Arc<Config>,
     router: Arc<RouterNode>,
     error_registry: Arc<ErrorRegistry>,
+    index_cache: Arc<IndexCache>,
 }
 
 impl ServerContext {
-    pub fn new(config: Config, router: RouterNode, registry: ErrorRegistry) -> Self {
+    pub fn new(
+        config: Config,
+        router: RouterNode,
+        registry: ErrorRegistry,
+        index_cache: IndexCache,
+    ) -> Self {
         Self {
             config: Arc::new(config),
             router: Arc::new(router),
             error_registry: Arc::new(registry),
+            index_cache: Arc::new(index_cache),
         }
     }
 }
@@ -128,6 +137,14 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 }
             }
             if !found {
+                if matched_handler.is_auto_index {
+                    let response = index_page_response(&context.index_cache, &sanitized_base).await;
+                    buf_try!(@try stream.write_all(response).await);
+                    return Ok(Err(format!(
+                        "Directory listing denied: {:?}",
+                        sanitized_base
+                    )));
+                }
                 let response = error_response(&context.error_registry, 403);
                 buf_try!(@try stream.write_all(response).await);
                 return Ok(Err(format!(

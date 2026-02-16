@@ -15,6 +15,7 @@ pub struct RouterHandler {
     pub matched_path: Arc<str>,
     pub index: Arc<[String]>,
     pub match_type: MatchType,
+    pub is_auto_index: bool,
 }
 
 impl Default for RouterHandler {
@@ -24,17 +25,19 @@ impl Default for RouterHandler {
             matched_path: Arc::from("/"),
             index: Arc::from([]),
             match_type: MatchType::Prefix,
+            is_auto_index: false,
         }
     }
 }
 
 impl RouterHandler {
-    pub fn new(root: &str, matched_path: &str, index: Vec<String>) -> Self {
+    pub fn new(root: &str, matched_path: &str, index: Vec<String>, is_auto_index: bool) -> Self {
         Self {
             root: Arc::from(root),
             matched_path: Arc::from(matched_path),
             index: index.into(),
             match_type: MatchType::Prefix,
+            is_auto_index,
         }
     }
     pub fn with_match_type(mut self, match_type: MatchType) -> Self {
@@ -156,6 +159,7 @@ impl RouterNode {
                 Some(LocationConfigType::Exact) => MatchType::Exact,
                 _ => MatchType::Prefix,
             };
+            let auto_index = loc.autoindex;
             router.insert(
                 &path,
                 match_type,
@@ -163,6 +167,7 @@ impl RouterNode {
                     root.as_ref(),
                     path.as_ref(),
                     index.to_vec(),
+                    auto_index,
                 )),
             );
             println!("Route registered: {}", path);
@@ -200,6 +205,7 @@ mod tests {
                 "/www/var/html",
                 "/home",
                 vec!["home.html".to_string()],
+                false,
             )),
         );
 
@@ -210,6 +216,7 @@ mod tests {
                 "/www/var/html",
                 "/about",
                 vec!["about.html".to_string()],
+                false,
             )),
         );
 
@@ -219,7 +226,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/home"),
                 index: Arc::from(vec![String::from("home.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -228,7 +236,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/about"),
                 index: Arc::from(vec![String::from("about.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(root.search("/"), None);
@@ -244,6 +253,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -253,6 +263,7 @@ mod tests {
                 "/www/var/html",
                 "/home",
                 vec!["home.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -262,6 +273,7 @@ mod tests {
                 "/www/var/html",
                 "/homepage",
                 vec!["homepage.html".to_string()],
+                false,
             )),
         );
 
@@ -271,7 +283,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/home"),
                 index: Arc::from(vec![String::from("home.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -280,7 +293,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/homepage"),
                 index: Arc::from(vec![String::from("homepage.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -289,7 +303,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/home"),
                 index: Arc::from(vec![String::from("home.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             },
         );
     }
@@ -304,6 +319,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -313,6 +329,7 @@ mod tests {
                 "/www/var/html",
                 "/apple",
                 vec!["apple.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -322,6 +339,7 @@ mod tests {
                 "/www/var/html",
                 "/apricot",
                 vec!["apricot.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -331,6 +349,7 @@ mod tests {
                 "/www/var/html",
                 "/app",
                 vec!["app.html".to_string()],
+                false,
             )),
         );
 
@@ -340,7 +359,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/apple"),
                 index: Arc::from(vec![String::from("apple.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -349,7 +369,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/apricot"),
                 index: Arc::from(vec![String::from("apricot.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -358,7 +379,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/app"),
                 index: Arc::from(vec![String::from("app.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -368,6 +390,7 @@ mod tests {
                 matched_path: Arc::from("/"),
                 index: Arc::from(vec![String::from("index.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -382,6 +405,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -391,6 +415,7 @@ mod tests {
                 "/www/var/html",
                 "/a/b/c",
                 vec!["c.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -400,6 +425,7 @@ mod tests {
                 "/www/var/html",
                 "/a/b",
                 vec!["b.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -409,6 +435,7 @@ mod tests {
                 "/www/var/html",
                 "/x/y/z/w",
                 vec!["w.html".to_string()],
+                false,
             )),
         );
 
@@ -419,6 +446,7 @@ mod tests {
                 matched_path: Arc::from("/a/b/c"),
                 index: Arc::from(vec![String::from("c.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -428,6 +456,7 @@ mod tests {
                 matched_path: Arc::from("/a/b"),
                 index: Arc::from(vec![String::from("b.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -437,6 +466,7 @@ mod tests {
                 matched_path: Arc::from("/x/y/z/w"),
                 index: Arc::from(vec![String::from("w.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -445,7 +475,8 @@ mod tests {
                 root: Arc::from("/www/var/html"),
                 matched_path: Arc::from("/"),
                 index: Arc::from(vec![String::from("index.html")]),
-                match_type: MatchType::Prefix
+                match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -455,6 +486,7 @@ mod tests {
                 matched_path: Arc::from("/a/b/c"),
                 index: Arc::from(vec![String::from("c.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -469,6 +501,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -478,6 +511,7 @@ mod tests {
                 "/www/var/html",
                 "/users",
                 vec!["users.html".to_string()],
+                false,
             )),
         );
 
@@ -488,6 +522,7 @@ mod tests {
                 matched_path: Arc::from("/"),
                 index: Arc::from(vec![String::from("index.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -497,6 +532,7 @@ mod tests {
                 matched_path: Arc::from("/users"),
                 index: Arc::from(vec![String::from("users.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -506,6 +542,7 @@ mod tests {
                 matched_path: Arc::from("/users"),
                 index: Arc::from(vec![String::from("users.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -520,6 +557,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         assert_eq!(
@@ -529,6 +567,7 @@ mod tests {
                 matched_path: Arc::from("/"),
                 index: Arc::from(vec![String::from("index.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
 
@@ -539,6 +578,7 @@ mod tests {
                 "/www/var/html",
                 "/foo",
                 vec!["foo.html".to_string()],
+                false,
             )),
         );
         assert_eq!(
@@ -548,6 +588,7 @@ mod tests {
                 matched_path: Arc::from("/foo"),
                 index: Arc::from(vec![String::from("foo.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -557,6 +598,7 @@ mod tests {
                 matched_path: Arc::from("/"),
                 index: Arc::from(vec![String::from("index.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -571,6 +613,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
@@ -580,6 +623,7 @@ mod tests {
                 "/www/var/html",
                 "/path",
                 vec!["path.html".to_string()],
+                false,
             )),
         );
         assert_eq!(
@@ -589,6 +633,7 @@ mod tests {
                 matched_path: Arc::from("/path"),
                 index: Arc::from(vec![String::from("path.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
 
@@ -599,6 +644,7 @@ mod tests {
                 "/www/var/html",
                 "/path",
                 vec!["path_v2.html".to_string()],
+                false,
             )),
         );
         assert_eq!(
@@ -608,6 +654,7 @@ mod tests {
                 matched_path: Arc::from("/path"),
                 index: Arc::from(vec![String::from("path_v2.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -622,22 +669,33 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
         root.insert(
             "/teams",
             MatchType::Exact,
             Some(
-                RouterHandler::new("/www/var/html", "/teams", vec!["teams.html".to_string()])
-                    .with_match_type(MatchType::Exact),
+                RouterHandler::new(
+                    "/www/var/html",
+                    "/teams",
+                    vec!["teams.html".to_string()],
+                    false,
+                )
+                .with_match_type(MatchType::Exact),
             ),
         );
         root.insert(
             "/team",
             MatchType::Exact,
             Some(
-                RouterHandler::new("/www/var/html", "/team", vec!["team.html".to_string()])
-                    .with_match_type(MatchType::Exact),
+                RouterHandler::new(
+                    "/www/var/html",
+                    "/team",
+                    vec!["team.html".to_string()],
+                    false,
+                )
+                .with_match_type(MatchType::Exact),
             ),
         );
         assert_eq!(
@@ -647,6 +705,7 @@ mod tests {
                 matched_path: Arc::from("/team"),
                 index: Arc::from(vec![String::from("team.html")]),
                 match_type: MatchType::Exact,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -656,6 +715,7 @@ mod tests {
                 matched_path: Arc::from("/teams"),
                 index: Arc::from(vec![String::from("teams.html")]),
                 match_type: MatchType::Exact,
+                is_auto_index: false,
             }
         );
 
@@ -667,6 +727,7 @@ mod tests {
                 "/www/var/html",
                 "/",
                 vec!["index.html".to_string()],
+                false,
             )),
         );
 
@@ -677,6 +738,7 @@ mod tests {
                 "/www/var/html",
                 "/team",
                 vec!["team.html".to_string()],
+                false,
             )),
         );
         root2.insert(
@@ -686,6 +748,7 @@ mod tests {
                 "/www/var/html",
                 "/teams",
                 vec!["teams.html".to_string()],
+                false,
             )),
         );
 
@@ -696,6 +759,7 @@ mod tests {
                 matched_path: Arc::from("/team"),
                 index: Arc::from(vec![String::from("team.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -705,6 +769,7 @@ mod tests {
                 matched_path: Arc::from("/teams"),
                 index: Arc::from(vec![String::from("teams.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
     }
@@ -716,8 +781,13 @@ mod tests {
             "/exact",
             MatchType::Exact,
             Some(
-                RouterHandler::new("/www/var/html", "/exact", vec!["exact.html".to_string()])
-                    .with_match_type(MatchType::Exact),
+                RouterHandler::new(
+                    "/www/var/html",
+                    "/exact",
+                    vec!["exact.html".to_string()],
+                    false,
+                )
+                .with_match_type(MatchType::Exact),
             ),
         );
         root.insert(
@@ -727,6 +797,7 @@ mod tests {
                 "/www/var/html",
                 "/prefix",
                 vec!["prefix.html".to_string()],
+                false,
             )),
         );
 
@@ -737,6 +808,7 @@ mod tests {
                 matched_path: Arc::from("/exact"),
                 index: Arc::from(vec![String::from("exact.html")]),
                 match_type: MatchType::Exact,
+                is_auto_index: false,
             }
         );
         assert_eq!(root.search("/exact/subpath"), None);
@@ -748,6 +820,7 @@ mod tests {
                 matched_path: Arc::from("/prefix"),
                 index: Arc::from(vec![String::from("prefix.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
         assert_eq!(
@@ -757,6 +830,7 @@ mod tests {
                 matched_path: Arc::from("/prefix"),
                 index: Arc::from(vec![String::from("prefix.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         ); // Should match subpath
         assert_eq!(
@@ -766,6 +840,7 @@ mod tests {
                 matched_path: Arc::from("/prefix"),
                 index: Arc::from(vec![String::from("prefix.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         ); // Should match deeper subpath
 

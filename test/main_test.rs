@@ -3,6 +3,7 @@ use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
 use damas::config::*;
 use damas::error::ErrorRegistry;
+use damas::index::IndexCache;
 use damas::response::error_response;
 use damas::router::RouterNode;
 use damas::{
@@ -144,7 +145,7 @@ async fn test_handle_connection_invalid_request() {
         }]
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry.clone());
+    let context = ServerContext::new(config, router, error_registry.clone(), IndexCache::new(10));
     let result = handle_request(&mut stream, &context).await;
     assert!(result.unwrap().is_err());
     assert!(
@@ -170,7 +171,7 @@ async fn test_handle_connection_unsupported_method() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry.clone());
+    let context = ServerContext::new(config, router, error_registry.clone(), IndexCache::new(10));
     let result = handle_request(&mut stream, &context).await;
     assert!(result.unwrap().is_err());
     assert!(
@@ -203,7 +204,7 @@ async fn test_handle_connection_ok() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry);
+    let context = ServerContext::new(config, router, error_registry, IndexCache::new(10));
     let result = handle_request(&mut stream, &context).await;
     assert!(
         result.is_ok(),
@@ -239,7 +240,7 @@ async fn test_index() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry);
+    let context = ServerContext::new(config, router, error_registry, IndexCache::new(10));
     let result = handle_request(&mut stream, &context).await;
 
     assert!(
