@@ -2,56 +2,62 @@ use crate::{error::ErrorRegistry, index::IndexCache};
 use bytes::{Bytes, BytesMut};
 use compio::fs::Metadata;
 use http::StatusCode;
+use std::fmt::Write;
 use std::path::PathBuf;
 
-pub fn response(metadata: &Metadata, mime_type: &[u8], status: u16) -> BytesMut {
-    let mut itoa_buf = itoa::Buffer::new();
-
-    let mut header_res = BytesMut::with_capacity(128);
-    header_res.extend_from_slice(b"HTTP/1.1 ");
-    header_res.extend_from_slice(itoa_buf.format(status).as_bytes());
-    header_res.extend_from_slice(b" OK\r\nContent-Type: ");
-    header_res.extend_from_slice(mime_type);
-    header_res.extend_from_slice(b"\r\nContent-Length: ");
-    header_res.extend_from_slice(itoa_buf.format(metadata.len()).as_bytes());
-    header_res.extend_from_slice(b"\r\nConnection: keep-alive\r\n\r\n");
-
-    header_res
-}
-
-pub fn error_response(registry: &ErrorRegistry, status: u16) -> Bytes {
-    let body = registry.resolve(status);
-    let mut itoa_buf = itoa::Buffer::new();
-
-    let status_code = StatusCode::from_u16(status)
-        .ok()
-        .and_then(|code| code.canonical_reason())
-        .unwrap_or("Unknown Error");
+fn build_http_response(status: u16, mime: &str, body: Bytes, keep_alive: bool) -> Bytes {
+    let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
 
     let mut res = BytesMut::with_capacity(128 + body.len());
 
-    // HTTP Line: HTTP/1.1 {status} {reason}\r\n
-    res.extend_from_slice(b"HTTP/1.1 ");
-    res.extend_from_slice(itoa_buf.format(status).as_bytes());
-    res.extend_from_slice(b" ");
-    res.extend_from_slice(status_code.as_bytes());
-    res.extend_from_slice(b"\r\n");
+    write!(
+        &mut res,
+        "HTTP/1.1 {} {}\r\n\
+            Content-Type: {}\r\n\
+            Content-Length: {}\r\n\
+            Connection: {}\r\n\r\n",
+        status,
+        reason,
+        mime,
+        body.len(),
+        if keep_alive { "keep-alive" } else { "close" }
+    )
+    .ok();
 
-    // Headers
-    res.extend_from_slice(b"Content-Type: text/html; charset=utf-8\r\n");
-    res.extend_from_slice(b"Content-Length: ");
-    res.extend_from_slice(itoa_buf.format(body.len()).as_bytes());
-    res.extend_from_slice(b"\r\nConnection: close\r\n\r\n");
-
-    // Body
     res.extend_from_slice(&body);
+    res.freeze()
+}
+
+pub fn response(metadata: &Metadata, mime: &str, status: u16) -> Bytes {
+    let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
+
+    let mut res = BytesMut::with_capacity(128);
+
+    write!(
+        &mut res,
+        "HTTP/1.1 {} {}\r\n\
+            Content-Type: {}\r\n\
+            Content-Length: {}\r\n\
+            Connection: keep-alive\r\n\r\n",
+        status,
+        reason,
+        mime,
+        metadata.len(),
+    )
+    .ok();
 
     res.freeze()
 }
 
-pub async fn index_page_response(index_cache: &IndexCache, dir_path: &PathBuf) -> Bytes {
-    let mut itoa_buf = itoa::Buffer::new();
+pub fn error_response(registry: &ErrorRegistry, status: u16) -> Bytes {
+    let body = registry.resolve(status);
+    let mime = "text/html; charset=utf-8";
+    build_http_response(status, mime, body, false)
+}
 
+pub async fn index_page_response(index_cache: &IndexCache, dir_path: &PathBuf) -> Bytes {
     let index = index_cache
         .render_index(dir_path)
         .await
@@ -59,19 +65,8 @@ pub async fn index_page_response(index_cache: &IndexCache, dir_path: &PathBuf) -
             Bytes::from("<html><body><h1>Failed to render index page</h1></body></html>")
         });
 
-    let mut res = BytesMut::with_capacity(128);
-    res.extend_from_slice(b"HTTP/1.1 ");
-    res.extend_from_slice(b"200 ");
-    res.extend_from_slice(b" OK\r\nContent-Type: ");
-    // Headers
-    res.extend_from_slice(b"Content-Type: text/html; charset=utf-8\r\n");
-    res.extend_from_slice(b"Content-Length: ");
-    res.extend_from_slice(itoa_buf.format(index.len()).as_bytes());
-    res.extend_from_slice(b"\r\nConnection: keep-alive\r\n\r\n");
-    //Body
-    res.extend_from_slice(&index);
-
-    res.freeze()
+    let mime = "text/html; charset=utf-8";
+    build_http_response(200, mime, index, true)
 }
 
 #[cfg(test)]
@@ -119,7 +114,7 @@ mod tests {
         let _file = File::create(&file_path).unwrap();
         let metadata = compio::fs::metadata(&file_path).await.unwrap();
 
-        let mime_type = b"text/plain";
+        let mime_type = "text/plain";
         let status = 200;
 
         let response = response(&metadata, mime_type, status);
@@ -143,7 +138,7 @@ mod tests {
         let response = index_page_response(&index_cache, &dir_path).await;
         let res_str = String::from_utf8_lossy(&response);
 
-        assert!(res_str.starts_with("HTTP/1.1 200  OK\r\n"));
+        assert!(res_str.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(res_str.contains("Content-Type: text/html; charset=utf-8\r\n"));
         assert!(res_str.contains("file1.txt"));
         assert!(res_str.contains("file2.txt"));
@@ -157,7 +152,7 @@ mod tests {
         let response = index_page_response(&index_cache, &dir_path).await;
         let res_str = String::from_utf8_lossy(&response);
 
-        assert!(res_str.starts_with("HTTP/1.1 200  OK\r\n"));
+        assert!(res_str.starts_with("HTTP/1.1 200 OK\r\n"));
         assert!(res_str.contains("<h1>Failed to render index page</h1>"));
     }
 }

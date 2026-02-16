@@ -237,7 +237,7 @@ pub fn sanitize_path(request_path: &str, base_dir: &Path) -> Option<PathBuf> {
         None
     }
 }
-pub fn get_mime_bytes(path: &std::path::Path) -> &'static [u8] {
+pub fn get_mime_bytes(path: &std::path::Path) -> &str {
     let extension = path
         .as_os_str()
         .as_encoded_bytes()
@@ -246,18 +246,18 @@ pub fn get_mime_bytes(path: &std::path::Path) -> &'static [u8] {
         .unwrap_or(b"");
 
     match extension {
-        b"html" | b"htm" => b"text/html; charset=utf-8",
-        b"js" | b"mjs" => b"text/javascript; charset=utf-8",
-        b"css" => b"text/css",
-        b"json" => b"application/json",
-        b"png" => b"image/png",
-        b"jpg" | b"jpeg" => b"image/jpeg",
-        b"gif" => b"image/gif",
-        b"svg" => b"image/svg+xml",
-        b"ico" => b"image/x-icon",
-        b"txt" => b"text/plain; charset=utf-8",
-        b"woff2" => b"font/woff2",
-        _ => b"application/octet-stream",
+        b"html" | b"htm" => "text/html; charset=utf-8",
+        b"js" | b"mjs" => "text/javascript; charset=utf-8",
+        b"css" => "text/css",
+        b"json" => "application/json",
+        b"png" => "image/png",
+        b"jpg" | b"jpeg" => "image/jpeg",
+        b"gif" => "image/gif",
+        b"svg" => "image/svg+xml",
+        b"ico" => "image/x-icon",
+        b"txt" => "text/plain; charset=utf-8",
+        b"woff2" => "font/woff2",
+        _ => "application/octet-stream",
     }
 }
 
@@ -270,24 +270,24 @@ mod tests {
     fn test_get_mime_bytes() {
         assert_eq!(
             get_mime_bytes(Path::new("index.html")),
-            b"text/html; charset=utf-8"
+            "text/html; charset=utf-8"
         );
         assert_eq!(
-            str::from_utf8(get_mime_bytes(Path::new("script.js"))).unwrap(),
+            get_mime_bytes(Path::new("script.js")),
             "text/javascript; charset=utf-8"
         );
-        assert_eq!(get_mime_bytes(Path::new("styles.css")), b"text/css");
-        assert_eq!(get_mime_bytes(Path::new("image.png")), b"image/png");
+        assert_eq!(get_mime_bytes(Path::new("styles.css")), "text/css");
+        assert_eq!(get_mime_bytes(Path::new("image.png")), "image/png");
 
         // 확장자가 없는 경우
         assert_eq!(
             get_mime_bytes(Path::new("README")),
-            b"application/octet-stream"
+            "application/octet-stream"
         );
 
         // 알 수 없는 확장자
         assert_eq!(
-            str::from_utf8(get_mime_bytes(Path::new("test.xyz"))).unwrap(),
+            get_mime_bytes(Path::new("test.xyz")),
             "application/octet-stream"
         );
     }
