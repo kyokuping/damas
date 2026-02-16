@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::error::ErrorRegistry;
+use crate::index::IndexCache;
 use crate::router::RouterNode;
 use crate::{ServerContext, handle_connection};
 use compio::net::TcpListener;
@@ -29,7 +30,8 @@ impl Server {
             config,
             error_registry,
         } = self;
-        let context = ServerContext::new(config, router, error_registry);
+        let index_cache = IndexCache::new(100);
+        let context = ServerContext::new(config, router, error_registry, index_cache);
         let addr = format!(
             "{}:{}",
             context.config.server.server_name, context.config.server.listen
@@ -170,6 +172,7 @@ mod tests {
                 matched_path: Arc::from("/static/images"),
                 index: Arc::from(vec![String::from("image.jpg")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             },
             "Should match the longest prefix (/static/images)"
         );
@@ -183,6 +186,7 @@ mod tests {
                 matched_path: Arc::from("/static"),
                 index: Arc::from(vec![String::from("static.html")]),
                 match_type: MatchType::Prefix,
+                is_auto_index: false,
             }
         );
 
