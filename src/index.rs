@@ -74,7 +74,7 @@ impl IndexCache {
             .get_template("index")
             .map_err(|e| anyhow!("Failed to get template: {}", e))?;
         let rendered = template
-            .render(context!(files))
+            .render(context!(files, dir_path => dir_path.display().to_string()))
             .map_err(|e| anyhow!("Failed to render template: {}", e))?;
 
         let rendered = Bytes::from(rendered);

@@ -1,10 +1,10 @@
 <!doctype html>
 <html>
     <head>
-        <title>Directory Listing</title>
+        <title>Index of {{ dir_path }}</title>
     </head>
     <body>
-        <h1>Directory Listing</h1>
+        <h1>Index of {{ dir_path }}</h1>
         <ul>
             {% for file in files %}
             <li><a href="{{ file }}">{{ file }}</a></li>
