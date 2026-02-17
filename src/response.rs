@@ -82,6 +82,8 @@ mod tests {
         let mut env = Environment::new();
         env.add_template("error", include_str!("../template/error.html"))
             .unwrap();
+        env.add_template("index", include_str!("../template/index.html"))
+            .unwrap();
         env
     });
 
@@ -139,7 +141,7 @@ mod tests {
         File::create(dir.path().join("file1.txt")).unwrap();
         File::create(dir.path().join("file2.txt")).unwrap();
 
-        let index_cache = IndexCache::new(10);
+        let index_cache = IndexCache::new(&JINJA_ENV, 10);
         let response = index_page_response(&index_cache, &dir_path).await;
         let res_str = String::from_utf8_lossy(&response);
 
@@ -152,7 +154,7 @@ mod tests {
     #[compio::test]
     async fn test_index_page_response_failure() {
         let dir_path = PathBuf::from("non_existent_directory_for_testing");
-        let index_cache = IndexCache::new(10);
+        let index_cache = IndexCache::new(&JINJA_ENV, 10);
 
         let response = index_page_response(&index_cache, &dir_path).await;
         let res_str = String::from_utf8_lossy(&response);

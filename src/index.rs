@@ -3,18 +3,10 @@ use bytes::Bytes;
 use compio::runtime::spawn_blocking;
 use minijinja::{Environment, context};
 use moka::future::Cache;
-use once_cell::sync::Lazy;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
-
-static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
-    let mut env = Environment::new();
-    env.add_template("index", include_str!("../template/index.html"))
-        .unwrap();
-    env
-});
 
 #[derive(Clone, Debug)]
 pub struct Index {
@@ -24,12 +16,14 @@ pub struct Index {
 
 #[derive(Debug)]
 pub struct IndexCache {
+    jinja_env: &'static Environment<'static>,
     inner: Cache<Arc<PathBuf>, Arc<Index>>,
 }
 
 impl IndexCache {
-    pub fn new(max_capacity: u64) -> Self {
+    pub fn new(jinja_env: &'static Environment<'static>, max_capacity: u64) -> Self {
         Self {
+            jinja_env,
             inner: Cache::builder().max_capacity(max_capacity).build(),
         }
     }
@@ -70,7 +64,8 @@ impl IndexCache {
         .await
         .map_err(|e| anyhow!("JoinError: {:?}", e))??;
 
-        let template = JINJA_ENV
+        let template = self
+            .jinja_env
             .get_template("index")
             .map_err(|e| anyhow!("Failed to get template: {}", e))?;
         let rendered = template
@@ -93,8 +88,16 @@ impl IndexCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use once_cell::sync::Lazy;
     use std::fs::File;
     use tempfile::tempdir;
+
+    static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
+        let mut env = Environment::new();
+        env.add_template("index", include_str!("../template/index.html"))
+            .unwrap();
+        env
+    });
 
     #[compio::test]
     async fn test_render_index() {
@@ -107,7 +110,7 @@ mod tests {
         File::create(dir.path().join(".hidden")).unwrap();
 
         // --- First render (cache miss) ---
-        let index_cache = IndexCache::new(100);
+        let index_cache = IndexCache::new(&JINJA_ENV, 100);
         let result1 = index_cache.render_index(&dir_path).await.unwrap();
         let html1 = String::from_utf8(result1.to_vec()).unwrap();
 
@@ -141,7 +144,7 @@ mod tests {
     #[compio::test]
     async fn test_render_index_not_found() {
         let dir_path = PathBuf::from("non_existent_directory_for_testing");
-        let index_cache = IndexCache::new(100);
+        let index_cache = IndexCache::new(&JINJA_ENV, 100);
         let result = index_cache.render_index(&dir_path).await;
         assert!(result.is_err());
     }
