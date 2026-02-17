@@ -287,6 +287,125 @@ async fn test_index() {
         String::from_utf8_lossy(&stream.write_buf)
     );
 }
+
+#[compio::test]
+async fn test_handle_request_not_found() {
+    let mut stream = RwMock::new(b"GET /nonexistent.html HTTP/1.1\r\n\r\n");
+    let dir = tempdir().unwrap();
+
+    let (config, router, error_registry) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: dir.path().to_path_buf(),
+            ..Default::default()
+        }];
+    })
+    .await;
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry.clone(),
+        IndexCache::new(&JINJA_ENV, 10),
+    );
+
+    let result = handle_request(&mut stream, &context).await;
+    assert!(result.unwrap().is_err());
+    assert!(
+        stream.write_buf.starts_with(b"HTTP/1.1 404 Not Found\r\n"),
+        "Expected 404 Not Found, got: {:?}",
+        String::from_utf8_lossy(&stream.write_buf)
+    );
+    assert_eq!(
+        stream.write_buf,
+        error_response(&error_registry, 404).await.as_ref()
+    );
+}
+
+#[compio::test]
+async fn test_handle_request_forbidden() {
+    let mut stream = RwMock::new(b"GET / HTTP/1.1\r\n\r\n");
+    let dir = tempdir().unwrap();
+
+    let (config, router, error_registry) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: dir.path().to_path_buf(),
+            autoindex: false,
+            index: vec![],
+        }];
+    })
+    .await;
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry.clone(),
+        IndexCache::new(&JINJA_ENV, 10),
+    );
+
+    let result = handle_request(&mut stream, &context).await;
+    assert!(result.unwrap().is_err());
+    assert!(
+        stream.write_buf.starts_with(b"HTTP/1.1 403 Forbidden\r\n"),
+        "Expected 403 Forbidden, got: {:?}",
+        String::from_utf8_lossy(&stream.write_buf)
+    );
+    assert_eq!(
+        stream.write_buf,
+        error_response(&error_registry, 403).await.as_ref()
+    );
+}
+
+#[compio::test]
+async fn test_handle_request_directory_listing() {
+    let mut stream = RwMock::new(b"GET / HTTP/1.1\r\n\r\n");
+    let dir = tempdir().unwrap();
+    File::create(dir.path().join("test_file.txt")).unwrap();
+
+    let dir_path = dir.path().join(PathBuf::new()).to_path_buf();
+
+    let (config, router, error_registry) = create_mock_context(|c| {
+        c.server.locations = vec![LocationConfig {
+            path: PathBuf::from("/"),
+            ty: Some(LocationConfigType::Prefix),
+            root: dir_path.clone(),
+            autoindex: true,
+            index: vec![],
+        }];
+    })
+    .await;
+    let index_cache = IndexCache::new(&JINJA_ENV, 10);
+    let context = ServerContext::new(config, router, error_registry, index_cache);
+
+    let result = handle_request(&mut stream, &context).await;
+
+    assert!(
+        result.is_ok(),
+        "handle_request should return Ok for directory listing"
+    );
+    let inner_result = result.unwrap();
+    assert!(
+        inner_result.is_ok(),
+        "The inner result should be Ok, but was an error: {:?}",
+        inner_result.err()
+    );
+
+    let response_body = String::from_utf8_lossy(&stream.write_buf);
+    assert!(
+        response_body.starts_with("HTTP/1.1 200 OK\r\n"),
+        "Expected 200 OK for directory listing"
+    );
+    assert!(
+        response_body.contains(&format!("<h1>Index of {}</h1>", dir_path.clone().display())),
+        "Response should contain directory listing"
+    );
+    assert!(
+        response_body.contains("test_file.txt"),
+        "Response should contain the file name"
+    );
+}
+
 #[test]
 fn test_sanitize_path_all_cases() {
     let base_root = PathBuf::from("/var/www/html");
