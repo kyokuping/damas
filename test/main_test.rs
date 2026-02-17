@@ -22,6 +22,8 @@ static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
     let mut env = Environment::new();
     env.add_template("error", include_str!("../template/error.html"))
         .unwrap();
+    env.add_template("index", include_str!("../template/index.html"))
+        .unwrap();
     env
 });
 
@@ -153,7 +155,12 @@ async fn test_handle_connection_invalid_request() {
         }]
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry.clone(), IndexCache::new(10));
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry.clone(),
+        IndexCache::new(&JINJA_ENV, 10),
+    );
     let result = handle_request(&mut stream, &context).await;
     assert!(result.unwrap().is_err());
     assert!(
@@ -179,7 +186,12 @@ async fn test_handle_connection_unsupported_method() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry.clone(), IndexCache::new(10));
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry.clone(),
+        IndexCache::new(&JINJA_ENV, 10),
+    );
     let result = handle_request(&mut stream, &context).await;
     assert!(result.unwrap().is_err());
     assert!(
@@ -212,7 +224,12 @@ async fn test_handle_connection_ok() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry, IndexCache::new(10));
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry,
+        IndexCache::new(&JINJA_ENV, 10),
+    );
     let result = handle_request(&mut stream, &context).await;
     assert!(
         result.is_ok(),
@@ -248,7 +265,12 @@ async fn test_index() {
         }];
     })
     .await;
-    let context = ServerContext::new(config, router, error_registry, IndexCache::new(10));
+    let context = ServerContext::new(
+        config,
+        router,
+        error_registry,
+        IndexCache::new(&JINJA_ENV, 10),
+    );
     let result = handle_request(&mut stream, &context).await;
 
     assert!(

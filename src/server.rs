@@ -12,6 +12,8 @@ static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
     let mut env = Environment::new();
     env.add_template("error", include_str!("../template/error.html"))
         .unwrap();
+    env.add_template("index", include_str!("../template/index.html"))
+        .unwrap();
     env
 });
 
@@ -40,7 +42,7 @@ impl Server {
             config,
             error_registry,
         } = self;
-        let index_cache = IndexCache::new(100);
+        let index_cache = IndexCache::new(&JINJA_ENV, 100);
         let context = ServerContext::new(config, router, error_registry, index_cache);
         let addr = format!(
             "{}:{}",
