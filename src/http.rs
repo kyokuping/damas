@@ -87,10 +87,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 if matched_handler.is_auto_index {
                     let response = index_page_response(&context.index_cache, &sanitized_base).await;
                     buf_try!(@try stream.write_all(response).await);
-                    return Ok(Err(format!(
-                        "Directory listing denied: {:?}",
-                        sanitized_base
-                    )));
+                    return Ok(Ok(()));
                 }
                 let response = error_response(&context.error_registry, 403).await;
                 buf_try!(@try stream.write_all(response).await);
