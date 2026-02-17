@@ -1,58 +1,86 @@
 use crate::config::Config;
 use bytes::Bytes;
 use compio::{buf::buf_try, fs::File, io::AsyncReadAtExt};
+use futures::stream::{StreamExt, futures_unordered::FuturesUnordered};
 use http::StatusCode;
-use std::{collections::HashMap, path::PathBuf};
+use minijinja::{Environment, context};
+use moka::future::Cache;
+
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub struct ErrorRegistry {
-    pub error_pages: HashMap<u16, Bytes>,
+    jinja_env: &'static Environment<'static>,
+    inner: Cache<u16, Bytes>,
 }
 
 impl ErrorRegistry {
-    pub async fn from_config(config: &Config) -> Result<Self, anyhow::Error> {
-        let mut error_pages = HashMap::new();
+    pub fn new(jinja_env: &'static Environment<'static>, max_capacity: u64) -> Self {
+        Self {
+            jinja_env,
+            inner: Cache::builder().max_capacity(max_capacity).build(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn get_cache(&self) -> &Cache<u16, Bytes> {
+        &self.inner
+    }
+
+    pub async fn init_with_config(&self, config: &Config) {
+        let mut tasks = FuturesUnordered::new();
 
         for error_page in &config.server.error_pages {
             let root = PathBuf::from(&error_page.root);
             for entry in &error_page.files.codes {
                 let path = root.join(&entry.file);
-                let contents = async move {
-                    let error_file = File::open(path).await?;
-                    let contents = Vec::new();
-                    let (_, contents) = buf_try!(@try error_file.read_to_end_at(contents, 0).await);
-                    Ok::<Bytes, anyhow::Error>(Bytes::from(contents))
-                }
-                .await;
+                let status = entry.status;
 
-                error_pages.insert(
-                    entry.status,
-                    contents.unwrap_or_else(|_| get_internal_default(entry.status)),
-                );
+                tasks.push(async move {
+                    let result = async {
+                        let error_file = File::open(&path).await?;
+                        let vec = Vec::with_capacity(4096);
+                        let (_, contents) = buf_try!(@try error_file.read_to_end_at(vec, 0).await);
+                        Ok::<Bytes, anyhow::Error>(Bytes::from(contents))
+                    }
+                    .await;
+
+                    let body = result.unwrap_or_else(|_| self.render_default_template(status));
+
+                    (status, body)
+                });
             }
         }
-        Ok(ErrorRegistry { error_pages })
-    }
 
-    pub fn resolve(&self, status: u16) -> Bytes {
-        if let Some(contents) = self.error_pages.get(&status) {
-            contents.clone()
-        } else {
-            get_internal_default(status)
+        while let Some((status, contents)) = tasks.next().await {
+            self.inner.insert(status, contents).await;
         }
     }
-}
 
-fn get_internal_default(status: u16) -> Bytes {
-    let status_code = StatusCode::from_u16(status)
-        .ok()
-        .and_then(|code| code.canonical_reason())
-        .unwrap_or("Unknown Error");
-    let error_template = include_str!("default_error.html").to_string();
-    let rendered = error_template
-        .replace("{status}", &status.to_string())
-        .replace("{status_code}", status_code);
-    Bytes::from(rendered)
+    pub async fn resolve(&self, status: u16) -> Bytes {
+        self.inner
+            .get_with(status, async move { self.render_default_template(status) })
+            .await
+    }
+
+    fn render_default_template(&self, status: u16) -> Bytes {
+        let status_code = StatusCode::from_u16(status)
+            .ok()
+            .and_then(|code| code.canonical_reason())
+            .unwrap_or("Unknown Error");
+        let rendered = self
+            .jinja_env
+            .get_template("error")
+            .and_then(|t| {
+                t.render(context! {
+                    status_code => status_code,
+                    status => status,
+                })
+            })
+            .unwrap_or_else(|_| format!("Error {}", status));
+
+        Bytes::from(rendered)
+    }
 }
 
 #[cfg(test)]
@@ -66,10 +94,18 @@ mod tests {
     };
     use compio::BufResult;
     use compio::io::AsyncWriteAtExt;
+    use once_cell::sync::Lazy;
     use std::fs::File as StdFile;
     use std::io::Write;
     use std::path::Path;
     use tempfile::tempdir;
+
+    static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
+        let mut env = Environment::new();
+        env.add_template("error", include_str!("../template/error.html"))
+            .unwrap();
+        env
+    });
 
     fn create_mock_config<F>(modifier: F) -> Config
     where
@@ -152,12 +188,13 @@ mod tests {
                 },
             }]
         });
-        let error_registry = ErrorRegistry::from_config(&config).await.unwrap();
-        assert!(error_registry.error_pages.contains_key(&400));
-        assert!(error_registry.error_pages.contains_key(&401));
-        assert!(error_registry.error_pages.contains_key(&402));
-        assert!(error_registry.error_pages.contains_key(&403));
-        assert!(!error_registry.error_pages.contains_key(&500));
+        let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
+        error_registry.init_with_config(&config).await;
+        assert!(error_registry.inner.contains_key(&400));
+        assert!(error_registry.inner.contains_key(&401));
+        assert!(error_registry.inner.contains_key(&402));
+        assert!(error_registry.inner.contains_key(&403));
+        assert!(!error_registry.inner.contains_key(&500));
     }
 
     #[compio::test]
@@ -194,16 +231,16 @@ mod tests {
                 },
             }]
         });
-
-        let error_registry = ErrorRegistry::from_config(&config).await.unwrap();
-        assert!(error_registry.error_pages.contains_key(&400));
+        let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
+        error_registry.init_with_config(&config).await;
+        assert!(error_registry.inner.contains_key(&400));
         assert_eq!(
-            error_registry.resolve(400),
+            error_registry.resolve(400).await,
             Bytes::from("~~400_BAD_REQUEST~~\n")
         );
-        assert!(error_registry.error_pages.contains_key(&401));
+        assert!(error_registry.inner.contains_key(&401));
         assert_eq!(
-            error_registry.resolve(401),
+            error_registry.resolve(401).await,
             Bytes::from("~~401_UNAUTHORIZED~~\n")
         );
     }
@@ -211,9 +248,12 @@ mod tests {
     #[compio::test]
     async fn test_resolve_unregistered_status_code() {
         let config = create_mock_config(|_| {});
-
-        let error_registry = ErrorRegistry::from_config(&config).await.unwrap();
-        assert!(!error_registry.error_pages.contains_key(&400));
-        assert_eq!(error_registry.resolve(400), get_internal_default(400));
+        let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
+        error_registry.init_with_config(&config).await;
+        assert!(!error_registry.inner.contains_key(&400));
+        assert_eq!(
+            error_registry.resolve(400).await,
+            error_registry.render_default_template(400)
+        );
     }
 }

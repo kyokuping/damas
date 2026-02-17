@@ -51,8 +51,8 @@ pub fn response(metadata: &Metadata, mime: &str, status: u16) -> Bytes {
     res.freeze()
 }
 
-pub fn error_response(registry: &ErrorRegistry, status: u16) -> Bytes {
-    let body = registry.resolve(status);
+pub async fn error_response(registry: &ErrorRegistry, status: u16) -> Bytes {
+    let body = registry.resolve(status).await;
     let mime = "text/html; charset=utf-8";
     build_http_response(status, mime, body, false)
 }
@@ -73,35 +73,40 @@ pub async fn index_page_response(index_cache: &IndexCache, dir_path: &PathBuf) -
 mod tests {
     use super::*;
     use crate::error::ErrorRegistry;
+    use minijinja::Environment;
+    use once_cell::sync::Lazy;
     use std::fs::File;
     use tempfile::tempdir;
 
-    #[test]
-    fn test_build_full_response_404() {
-        let mut error_pages = std::collections::HashMap::new();
-        error_pages.insert(404, Bytes::from("<html>404 Not Found</html>"));
+    static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
+        let mut env = Environment::new();
+        env.add_template("error", include_str!("../template/error.html"))
+            .unwrap();
+        env
+    });
 
-        let registry = ErrorRegistry { error_pages };
+    #[compio::test]
+    async fn test_build_full_response_404() {
+        let registry = ErrorRegistry::new(&JINJA_ENV, 10);
 
-        let response = error_response(&registry, 404);
+        let mock_body = Bytes::from("<html>404 Not Found</html>");
+        registry.get_cache().insert(404, mock_body.clone()).await;
+
+        let response = error_response(&registry, 404).await;
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.starts_with("HTTP/1.1 404 Not Found\r\n"));
-
         assert!(res_str.contains("Content-Type: text/html; charset=utf-8\r\n"));
         assert!(res_str.contains("Content-Length: 26\r\n"));
         assert!(res_str.contains("Connection: close\r\n\r\n"));
-
         assert!(res_str.ends_with("<html>404 Not Found</html>"));
     }
 
-    #[test]
-    fn test_build_full_response_unknown_code() {
-        let registry = ErrorRegistry {
-            error_pages: std::collections::HashMap::new(),
-        };
+    #[compio::test]
+    async fn test_build_full_response_unknown_code() {
+        let registry = ErrorRegistry::new(&JINJA_ENV, 10);
 
-        let response = error_response(&registry, 999);
+        let response = error_response(&registry, 999).await;
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.contains("999 Unknown Error"));
