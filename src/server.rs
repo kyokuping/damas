@@ -1,8 +1,11 @@
+use crate::ServerContext;
 use crate::config::Config;
 use crate::error::ErrorRegistry;
+use crate::http::handle_request;
 use crate::index::IndexCache;
+use crate::response::error_response;
 use crate::router::RouterNode;
-use crate::{ServerContext, handle_connection};
+use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpListener;
 use compio::runtime::spawn;
 use minijinja::Environment;
@@ -66,6 +69,20 @@ impl Server {
                     eprintln!("Error accepting connection: {}", err);
                 }
             }
+        }
+    }
+}
+
+async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, context: ServerContext) -> () {
+    match handle_request(&mut stream, &context).await {
+        Ok(Ok(())) => (),
+        Ok(Err(expected)) => {
+            println!("Expected error: {}", expected);
+        }
+        Err(err) => {
+            println!("Error handling request: {}", err);
+            let response = error_response(&context.error_registry, 500).await;
+            let _ = stream.write_all(response).await;
         }
     }
 }
