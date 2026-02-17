@@ -1,16 +1,14 @@
 use compio::BufResult;
 use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
+use damas::ServerContext;
 use damas::config::*;
 use damas::error::ErrorRegistry;
+use damas::http::handle_request;
 use damas::index::IndexCache;
 use damas::response::error_response;
 use damas::router::RouterNode;
-use damas::{
-    ServerContext,
-    config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig},
-    handle_request, sanitize_path,
-};
+use damas::util::sanitize_path;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 use std::fs::File;
