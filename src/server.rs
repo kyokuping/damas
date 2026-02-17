@@ -5,6 +5,15 @@ use crate::router::RouterNode;
 use crate::{ServerContext, handle_connection};
 use compio::net::TcpListener;
 use compio::runtime::spawn;
+use minijinja::Environment;
+use once_cell::sync::Lazy;
+
+static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
+    let mut env = Environment::new();
+    env.add_template("error", include_str!("../template/error.html"))
+        .unwrap();
+    env
+});
 
 pub struct Server {
     router: RouterNode,
@@ -15,7 +24,8 @@ pub struct Server {
 impl Server {
     pub async fn from_config(config: Config) -> anyhow::Result<Self, anyhow::Error> {
         let router = RouterNode::from_config(&config)?;
-        let error_registry = ErrorRegistry::from_config(&config).await?;
+        let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
+        error_registry.init_with_config(&config).await;
 
         Ok(Self {
             router,

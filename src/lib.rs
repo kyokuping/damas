@@ -55,7 +55,7 @@ pub async fn handle_connection<T: AsyncRead + AsyncWrite>(
         }
         Err(err) => {
             println!("Error handling request: {}", err);
-            let response = error_response(&context.error_registry, 500);
+            let response = error_response(&context.error_registry, 500).await;
             let _ = stream.write_all(response).await;
         }
     }
@@ -83,7 +83,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             Ok(httparse::Status::Partial) => continue,
             Err(_) => {
                 //let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
-                let response = error_response(&context.error_registry, 400);
+                let response = error_response(&context.error_registry, 400).await;
                 buf_try!(@try stream.write_all(response).await);
                 return Ok(Err("Failed to parse request".to_owned()));
             }
@@ -96,7 +96,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
 
     if request.method != Some("GET") {
         //let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
-        let response = error_response(&context.error_registry, 405);
+        let response = error_response(&context.error_registry, 405).await;
         buf_try!(@try stream.write_all(response).await);
         return Ok(Err(format!(
             "Unsupported HTTP method: {}",
@@ -107,7 +107,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
             Some(res) => res,
             None => {
-                let response = error_response(&context.error_registry, 404);
+                let response = error_response(&context.error_registry, 404).await;
                 buf_try!(@try stream.write_all(response).await);
                 return Ok(Err(format!(
                     "No matching route found for path: {}",
@@ -145,7 +145,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                         sanitized_base
                     )));
                 }
-                let response = error_response(&context.error_registry, 403);
+                let response = error_response(&context.error_registry, 403).await;
                 buf_try!(@try stream.write_all(response).await);
                 return Ok(Err(format!(
                     "Directory listing denied: {:?}",
@@ -153,7 +153,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 )));
             }
         } else if !sanitized_base.is_file() {
-            let response = error_response(&context.error_registry, 404);
+            let response = error_response(&context.error_registry, 404).await;
             buf_try!(@try stream.write_all(response).await);
             return Ok(Err(format!("File not found: {:?}", sanitized_base)));
         }
@@ -164,13 +164,13 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
                     //let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-                    let response = error_response(&context.error_registry, 404);
+                    let response = error_response(&context.error_registry, 404).await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(Err(err.to_string()));
                 }
                 _ => {
                     //let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
-                    let response = error_response(&context.error_registry, 500);
+                    let response = error_response(&context.error_registry, 500).await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(Err(err.to_string()));
                 }

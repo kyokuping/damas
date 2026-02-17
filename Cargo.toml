@@ -7,9 +7,9 @@ edition = "2024"
 anyhow = "1.0.100"
 bytes = "1.11.1"
 compio = { version = "0.17.0" , features = ["macros", "runtime"]}
+futures = "0.3.32"
 http = "1.4.0"
 httparse = "1.10.1"
-itoa = "1.0.17"
 knus = "3.3.1"
 miette = { version = "7.6.0", features = ["fancy"] }
 minijinja = "2.15.1"

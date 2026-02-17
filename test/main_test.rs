@@ -11,9 +11,19 @@ use damas::{
     config::{Config, ErrorPage, LocationConfig, LocationConfigType, ServerConfig},
     handle_request, sanitize_path,
 };
+use minijinja::Environment;
+use once_cell::sync::Lazy;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
+
+#[cfg(test)]
+static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
+    let mut env = Environment::new();
+    env.add_template("error", include_str!("../template/error.html"))
+        .unwrap();
+    env
+});
 
 #[test]
 fn test_sanitize_path_valid() {
@@ -124,10 +134,8 @@ where
     modifier(&mut config);
 
     let router = RouterNode::from_config(&config).unwrap();
-    let error_registry = match ErrorRegistry::from_config(&config).await {
-        Ok(registry) => registry,
-        Err(err) => panic!("Failed to create error registry: {}", err),
-    };
+    let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
+    error_registry.init_with_config(&config).await;
 
     (config, router, error_registry)
 }
@@ -155,7 +163,7 @@ async fn test_handle_connection_invalid_request() {
         "Expected 400 Bad Request, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
-    assert_eq!(stream.write_buf, error_response(&error_registry, 400));
+    assert_eq!(stream.write_buf, error_response(&error_registry, 400).await);
 }
 
 #[compio::test]
@@ -183,7 +191,7 @@ async fn test_handle_connection_unsupported_method() {
     );
     assert_eq!(
         stream.write_buf,
-        error_response(&error_registry, 405).as_ref()
+        error_response(&error_registry, 405).await.as_ref()
     );
 }
 
