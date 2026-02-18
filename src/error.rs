@@ -102,7 +102,7 @@ mod tests {
 
     static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
         let mut env = Environment::new();
-        env.add_template("error", include_str!("../template/error.html"))
+        env.add_template("error", include_str!("../template/error.jinja"))
             .unwrap();
         env
     });
