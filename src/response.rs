@@ -26,6 +26,7 @@ fn build_http_response(status: u16, mime: &str, body: Bytes, keep_alive: bool) -
     .ok();
 
     res.extend_from_slice(&body);
+    tracing::Span::current().record("status", status);
     res.freeze()
 }
 
@@ -47,7 +48,7 @@ pub fn response(metadata: &Metadata, mime: &str, status: u16) -> Bytes {
         metadata.len(),
     )
     .ok();
-
+    tracing::Span::current().record("status", status);
     res.freeze()
 }
 

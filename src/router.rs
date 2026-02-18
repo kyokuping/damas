@@ -140,7 +140,7 @@ impl RouterNode {
                     return Some((h.clone(), remaining_path));
                 }
 
-                println!(
+                tracing::info!(
                     "Path matched but no handler or deeper route for: {:?}",
                     child.path
                 );
@@ -170,7 +170,7 @@ impl RouterNode {
                     auto_index,
                 )),
             );
-            println!("Route registered: {}", path);
+            tracing::info!("Route registered: {}", path);
         }
         Ok(router)
     }
