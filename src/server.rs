@@ -10,6 +10,7 @@ use compio::net::TcpListener;
 use compio::runtime::spawn;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
+use tracing::{Instrument, Span, info_span};
 
 static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
     let mut env = Environment::new();
@@ -29,8 +30,10 @@ pub struct Server {
 impl Server {
     pub async fn from_config(config: Config) -> anyhow::Result<Self, anyhow::Error> {
         let router = RouterNode::from_config(&config)?;
+        tracing::info!("created router from config");
         let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
         error_registry.init_with_config(&config).await;
+        tracing::info!("initialized error registry");
 
         Ok(Self {
             router,
@@ -53,20 +56,28 @@ impl Server {
         );
 
         let listener = TcpListener::bind(&addr).await.inspect_err(|_e| {
-            eprintln!("Failed to bind to {}", addr);
+            tracing::error!("Failed to bind to {}", addr);
         })?;
 
-        println!("Server started at {}", addr);
+        tracing::info!("🚀 Server started at {}", addr);
 
         loop {
             match listener.accept().await {
                 Ok((stream, address)) => {
-                    println!("Accepted connection from {}", address);
+                    tracing::info!("Accepted connection from {}", address);
                     let ctx = context.clone();
-                    spawn(async move { handle_connection(stream, ctx).await }).detach();
+                    let span = info_span!(
+                        "handle_connection",
+                        address = %address,
+                        method = tracing::field::Empty,
+                        path = tracing::field::Empty,
+                        status = tracing::field::Empty
+                    );
+                    spawn(async move { handle_connection(stream, ctx).instrument(span).await })
+                        .detach();
                 }
                 Err(err) => {
-                    eprintln!("Error accepting connection: {}", err);
+                    tracing::error!("Error accepting connection: {}", err);
                 }
             }
         }
@@ -74,13 +85,18 @@ impl Server {
 }
 
 async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, context: ServerContext) -> () {
-    match handle_request(&mut stream, &context).await {
-        Ok(Ok(())) => (),
+    match handle_request(&mut stream, &context)
+        .instrument(Span::current())
+        .await
+    {
+        Ok(Ok(())) => {
+            tracing::info!("Request handled successfully");
+        }
         Ok(Err(expected)) => {
-            println!("Expected error: {}", expected);
+            tracing::error!("Expected error: {}", expected);
         }
         Err(err) => {
-            println!("Error handling request: {}", err);
+            tracing::error!("Error handling request: {}", err);
             let response = error_response(&context.error_registry, 500).await;
             let _ = stream.write_all(response).await;
         }

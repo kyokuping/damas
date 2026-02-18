@@ -7,6 +7,7 @@ use compio::fs::File;
 use compio::io::{AsyncRead, AsyncReadAt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use std::io::ErrorKind;
 use std::path::PathBuf;
+use tracing::Instrument;
 
 pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     stream: &mut T,
@@ -17,7 +18,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         let (bytes_read, buf) = buf_try!(@try stream.append(buffer).await);
         buffer = buf;
         if bytes_read == 0 {
-            println!("Connection closed by peer");
+            tracing::info!("Connection closed by peer");
             return Ok(Ok(()));
         }
 
@@ -26,13 +27,18 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         let mut request = httparse::Request::new(&mut headers);
 
         match request.parse(&buffer) {
-            Ok(httparse::Status::Complete(_)) => break,
-            Ok(httparse::Status::Partial) => continue,
-            Err(_) => {
-                //let response = b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+            Ok(httparse::Status::Complete(_)) => {
+                tracing::info!("Request parsed successfully");
+                break;
+            }
+            Ok(httparse::Status::Partial) => {
+                tracing::debug!("Partial request, continuing to read");
+                continue;
+            }
+            Err(e) => {
                 let response = error_response(&context.error_registry, 400).await;
                 buf_try!(@try stream.write_all(response).await);
-                return Ok(Err("Failed to parse request".to_owned()));
+                return Ok(Err(format!("Failed to parse request: {}", e)));
             }
         }
     }
@@ -41,8 +47,16 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     let mut request = httparse::Request::new(&mut headers);
     request.parse(&buffer)?;
 
+    let method = request.method.unwrap_or("UNKNOWN");
+    let uri = request.path.unwrap_or("/");
+
+    tracing::Span::current()
+        .record("method", method)
+        .record("path", uri);
+
+    tracing::info!("Received request: {} {}", method, uri);
+
     if request.method != Some("GET") {
-        //let response = b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n";
         let response = error_response(&context.error_registry, 405).await;
         buf_try!(@try stream.write_all(response).await);
         return Ok(Err(format!(
@@ -52,7 +66,10 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     }
     if let Some(path_str) = request.path {
         let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
-            Some(res) => res,
+            Some(res) => {
+                tracing::info!("Found matching route for path: {}", path_str);
+                res
+            }
             None => {
                 let response = error_response(&context.error_registry, 404).await;
                 buf_try!(@try stream.write_all(response).await);
@@ -70,8 +87,6 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         let mut final_file_path = sanitized_base.clone();
 
         if sanitized_base.is_dir() {
-            println!("direct directory: {:?}", sanitized_base);
-
             let mut found = false;
             {
                 for idx in matched_handler.index.iter() {
@@ -85,7 +100,9 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             }
             if !found {
                 if matched_handler.is_auto_index {
-                    let response = index_page_response(&context.index_cache, &sanitized_base).await;
+                    let response = index_page_response(&context.index_cache, &sanitized_base)
+                        .instrument(tracing::info_span!("serving_auto_index"))
+                        .await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(Ok(()));
                 }
@@ -102,18 +119,16 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             return Ok(Err(format!("File not found: {:?}", sanitized_base)));
         }
 
-        println!("Path: {:?}", final_file_path);
+        tracing::debug!("Serving file: {:?}", final_file_path);
         let file = match File::open(&final_file_path).await {
             Ok(file) => file,
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
-                    //let response = b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
                     let response = error_response(&context.error_registry, 404).await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(Err(err.to_string()));
                 }
                 _ => {
-                    //let response = b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
                     let response = error_response(&context.error_registry, 500).await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(Err(err.to_string()));
@@ -132,18 +147,14 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             Vec::with_capacity(context.config.server.file_read_buffer_size);
 
         while pos < file_size {
-            let (read_bytes, returned_file_buffer) = buf_try!(
-                @try file.read_at(file_buffer, pos).await
-            );
+            let (read_bytes, returned_file_buffer) =
+                buf_try!(@try file.read_at(file_buffer, pos).await);
             if read_bytes == 0 {
                 break;
             }
 
-            let (_, returned_buffer) = buf_try!(
-                @try stream
-                    .write(returned_file_buffer.slice(..read_bytes))
-                    .await
-            );
+            let (_, returned_buffer) =
+                buf_try!(@try stream.write(returned_file_buffer.slice(..read_bytes)).await);
             file_buffer = returned_buffer.into_inner();
             pos += read_bytes as u64;
         }
