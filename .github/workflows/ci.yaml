@@ -31,13 +31,13 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: taiki-e/install-action@v2
         with:
-          toolchain: cargo-llvm-cov
+          tool: cargo-llvm-cov
 
       - name: Install cargo-nextest
         if: github.ref == 'refs/heads/main'
         uses: taiki-e/install-action@v2
         with:
-          toolchain: cargo-nextest
+          tool: cargo-nextest
 
       - name: Build and test with coverage
         if: github.ref == 'refs/heads/main'
