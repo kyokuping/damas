@@ -24,26 +24,16 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run Tests
-        run: cargo test --verbose
-
-      - name: Install cargo-llvm-cov
-        if: github.ref == 'refs/heads/main'
+      - name: Install cargo-llvm-cov & cargo-nextest
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov
-
-      - name: Install cargo-nextest
-        if: github.ref == 'refs/heads/main'
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
+          tool: cargo-llvm-cov, cargo-nextest
 
       - name: Build and test with coverage
-        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
+          cargo llvm-cov clean --workspace
 
           bins_start=$(date +%s)
           cargo build --locked
@@ -59,9 +49,9 @@ jobs:
 
           test_start=$(date +%s)
           if command -v cargo-nextest &> /dev/null; then
-            cargo nextest run --locked --no-fail-fast
+            cargo nextest run --locked
           else
-            cargo test --locked --no-fail-fast
+            cargo test --locked
           fi
           test_end=$(date +%s)
           test_duration=$((test_end - test_start))
@@ -84,7 +74,6 @@ jobs:
           ls -la codecov.json
 
       - name: Upload coverage to Codecov
-        if: github.ref == 'refs/heads/main'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
