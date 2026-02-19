@@ -27,6 +27,72 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
+      - name: Install cargo-llvm-cov
+        if: github.ref == 'refs/heads/main'
+        uses: taiki-e/install-action@v2
+        with:
+          toolchain: cargo-llvm-cov
+
+      - name: Install cargo-nextest
+        if: github.ref == 'refs/heads/main'
+        uses: taiki-e/install-action@v2
+        with:
+          toolchain: cargo-nextest
+
+      - name: Build and test with coverage
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          source <(cargo llvm-cov show-env --export-prefix)
+
+          bins_start=$(date +%s)
+          cargo build --locked
+          bins_end=$(date +%s)
+          bins_duration=$((bins_end - bins_start))
+          echo "::notice::Binaries and libraries built in ${bins_duration}s ($(date -ud @${bins_duration} +'%M:%S'))"
+
+          compile_start=$(date +%s)
+          cargo test --locked --no-run
+          compile_end=$(date +%s)
+          compile_duration=$((compile_end - compile_start))
+          echo "::notice::Tests compiled in ${compile_duration}s ($(date -ud @${compile_duration} +'%M:%S'))"
+
+          test_start=$(date +%s)
+          if command -v cargo-nextest &> /dev/null; then
+            cargo nextest run --locked --no-fail-fast
+          else
+            cargo test --locked --no-fail-fast
+          fi
+          test_end=$(date +%s)
+          test_duration=$((test_end - test_start))
+          echo "::notice::Tests executed in ${test_duration}s ($(date -ud @${test_duration} +'%M:%S'))"
+
+          build_duration=$((bins_duration + compile_duration))
+          total_duration=$((build_duration + test_duration))
+          echo ""
+          echo "========================================="
+          echo "All targets build:             ${bins_duration}s ($(date -ud @${bins_duration} +'%M:%S'))"
+          echo "Tests compile:                 ${compile_duration}s ($(date -ud @${compile_duration} +'%M:%S'))"
+          echo "Tests execute:                 ${test_duration}s ($(date -ud @${test_duration} +'%M:%S'))"
+          echo "-----------------------------------------"
+          echo "Total build:                   ${build_duration}s ($(date -ud @${build_duration} +'%M:%S'))"
+          echo "Total time:                    ${total_duration}s ($(date -ud @${total_duration} +'%M:%S'))"
+          echo "========================================="
+
+          cargo llvm-cov report --codecov --output-path codecov.json
+          echo "Coverage report generated: codecov.json"
+          ls -la codecov.json
+
+      - name: Upload coverage to Codecov
+        if: github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: codecov.json
+          flags: rust
+          verbose: true
+          fail_ci_if_error: false
+
   lint_and_shear:
     name: Lint and Dependency Check
     runs-on: ubuntu-latest
