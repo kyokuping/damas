@@ -84,21 +84,15 @@ impl Server {
     }
 }
 
-async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, context: ServerContext) -> () {
-    match handle_request(&mut stream, &context)
+async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, context: ServerContext) {
+    if let Err(e) = handle_request(&mut stream, &context)
         .instrument(Span::current())
         .await
     {
-        Ok(Ok(())) => {
-            tracing::info!("Request handled successfully");
-        }
-        Ok(Err(expected)) => {
-            tracing::error!("Expected error: {}", expected);
-        }
-        Err(err) => {
-            tracing::error!("Error handling request: {}", err);
-            let response = error_response(&context.error_registry, 500).await;
-            let _ = stream.write_all(response).await;
+        let response = error_response(&context.error_registry, &e).await;
+        let buf_res = stream.write_all(response).await;
+        if let Err(e) = buf_res.0 {
+            tracing::error!("failed to write error response: {}", e);
         }
     }
 }

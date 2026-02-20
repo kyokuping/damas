@@ -3,6 +3,7 @@ use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
 use damas::ServerContext;
 use damas::config::*;
+use damas::error::DamasError;
 use damas::error::ErrorRegistry;
 use damas::http::handle_request;
 use damas::index::IndexCache;
@@ -160,7 +161,7 @@ async fn test_handle_connection_invalid_request() {
         IndexCache::new(&JINJA_ENV, 10),
     );
     let result = handle_request(&mut stream, &context).await;
-    assert!(result.unwrap().is_err());
+    assert!(result.is_err());
     assert!(
         stream
             .write_buf
@@ -168,7 +169,10 @@ async fn test_handle_connection_invalid_request() {
         "Expected 400 Bad Request, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
     );
-    assert_eq!(stream.write_buf, error_response(&error_registry, 400).await);
+    assert_eq!(
+        stream.write_buf,
+        error_response(&error_registry, &DamasError::from_code(400)).await
+    );
 }
 
 #[compio::test]
@@ -191,7 +195,7 @@ async fn test_handle_connection_unsupported_method() {
         IndexCache::new(&JINJA_ENV, 10),
     );
     let result = handle_request(&mut stream, &context).await;
-    assert!(result.unwrap().is_err());
+    assert!(result.is_err());
     assert!(
         stream
             .write_buf
@@ -201,7 +205,9 @@ async fn test_handle_connection_unsupported_method() {
     );
     assert_eq!(
         stream.write_buf,
-        error_response(&error_registry, 405).await.as_ref()
+        error_response(&error_registry, &DamasError::from_code(405))
+            .await
+            .as_ref()
     );
 }
 
@@ -310,7 +316,7 @@ async fn test_handle_request_not_found() {
     );
 
     let result = handle_request(&mut stream, &context).await;
-    assert!(result.unwrap().is_err());
+    assert!(result.is_err());
     assert!(
         stream.write_buf.starts_with(b"HTTP/1.1 404 Not Found\r\n"),
         "Expected 404 Not Found, got: {:?}",
@@ -318,7 +324,9 @@ async fn test_handle_request_not_found() {
     );
     assert_eq!(
         stream.write_buf,
-        error_response(&error_registry, 404).await.as_ref()
+        error_response(&error_registry, &DamasError::from_code(404))
+            .await
+            .as_ref()
     );
 }
 
@@ -345,7 +353,8 @@ async fn test_handle_request_forbidden() {
     );
 
     let result = handle_request(&mut stream, &context).await;
-    assert!(result.unwrap().is_err());
+    println!("Result: {:?}", result);
+    assert!(result.is_err());
     assert!(
         stream.write_buf.starts_with(b"HTTP/1.1 403 Forbidden\r\n"),
         "Expected 403 Forbidden, got: {:?}",
@@ -353,7 +362,9 @@ async fn test_handle_request_forbidden() {
     );
     assert_eq!(
         stream.write_buf,
-        error_response(&error_registry, 403).await.as_ref()
+        error_response(&error_registry, &DamasError::from_code(403))
+            .await
+            .as_ref()
     );
 }
 
@@ -383,12 +394,6 @@ async fn test_handle_request_directory_listing() {
     assert!(
         result.is_ok(),
         "handle_request should return Ok for directory listing"
-    );
-    let inner_result = result.unwrap();
-    assert!(
-        inner_result.is_ok(),
-        "The inner result should be Ok, but was an error: {:?}",
-        inner_result.err()
     );
 
     let response_body = String::from_utf8_lossy(&stream.write_buf);
