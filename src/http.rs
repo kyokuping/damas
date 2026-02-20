@@ -1,10 +1,11 @@
 use crate::ServerContext;
+use crate::error::DamasError;
 use crate::response::{error_response, index_page_response, response};
 use crate::util::{get_mime_bytes, sanitize_path};
-use anyhow::anyhow;
 use compio::buf::{IntoInner, IoBuf, buf_try};
 use compio::fs::File;
 use compio::io::{AsyncRead, AsyncReadAt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use miette::NamedSource;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use tracing::Instrument;
@@ -12,14 +13,15 @@ use tracing::Instrument;
 pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     stream: &mut T,
     context: &ServerContext,
-) -> anyhow::Result<Result<(), String>> {
+) -> Result<(), DamasError> {
     let mut buffer = Vec::with_capacity(context.config.server.connection_buffer_size);
+
     loop {
         let (bytes_read, buf) = buf_try!(@try stream.append(buffer).await);
         buffer = buf;
         if bytes_read == 0 {
             tracing::info!("Connection closed by peer");
-            return Ok(Ok(()));
+            return Ok(());
         }
 
         let mut headers =
@@ -35,31 +37,44 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 tracing::debug!("Partial request, continuing to read");
                 continue;
             }
-            Err(e) => {
-                let response = error_response(&context.error_registry, 400).await;
+            Err(_e) => {
+                let response =
+                    error_response(&context.error_registry, &DamasError::from_code(400)).await;
                 buf_try!(@try stream.write_all(response).await);
-                return Ok(Err(format!("Failed to parse request: {}", e)));
+
+                let request_str = String::from_utf8_lossy(&buffer);
+                return Err(DamasError::RequestParse {
+                    src: NamedSource::new("request", request_str.to_string()),
+                    span: (0, request_str.len()).into(),
+                });
             }
         }
     }
+
     let mut headers =
         vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
     let mut request = httparse::Request::new(&mut headers);
-    request.parse(&buffer)?;
+    match request.parse(&buffer) {
+        Ok(_status) => {
+            let method = request.method.unwrap_or("UNKNOWN");
+            let uri = request.path.unwrap_or("/");
 
-    let method = request.method.unwrap_or("UNKNOWN");
-    let uri = request.path.unwrap_or("/");
+            tracing::Span::current()
+                .record("method", method)
+                .record("path", uri);
 
-    tracing::Span::current()
-        .record("method", method)
-        .record("path", uri);
-
-    tracing::info!("Received request: {} {}", method, uri);
+            tracing::info!("Received request: {} {}", method, uri);
+        }
+        Err(err) => {
+            return Err(DamasError::from_httparse(err, Some(&buffer)));
+        }
+    }
 
     if request.method != Some("GET") {
-        let response = error_response(&context.error_registry, 405).await;
+        let response = error_response(&context.error_registry, &DamasError::from_code(405)).await;
         buf_try!(@try stream.write_all(response).await);
-        return Ok(Err(format!(
+
+        return Err(DamasError::Forbidden(format!(
             "Unsupported HTTP method: {}",
             request.method.unwrap_or("UNKNOWN")
         )));
@@ -71,18 +86,22 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 res
             }
             None => {
-                let response = error_response(&context.error_registry, 404).await;
+                let response =
+                    error_response(&context.error_registry, &DamasError::from_code(404)).await;
                 buf_try!(@try stream.write_all(response).await);
-                return Ok(Err(format!(
+
+                return Err(DamasError::NotFound(format!(
                     "No matching route found for path: {}",
                     path_str
                 )));
             }
         };
+
         let base_root = PathBuf::from(&*matched_handler.root);
         remaining_path = remaining_path.strip_prefix("/").unwrap_or(remaining_path);
-        let sanitized_base =
-            sanitize_path(remaining_path, &base_root).ok_or(anyhow!("invalid path: {path_str}"))?;
+        let sanitized_base = sanitize_path(remaining_path, &base_root).ok_or(
+            DamasError::Internal(format!("invalid path: {path_str}").into()),
+        )?;
 
         let mut final_file_path = sanitized_base.clone();
 
@@ -104,19 +123,24 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                         .instrument(tracing::info_span!("serving_auto_index"))
                         .await;
                     buf_try!(@try stream.write_all(response).await);
-                    return Ok(Ok(()));
+                    return Ok(());
                 }
-                let response = error_response(&context.error_registry, 403).await;
+                let response =
+                    error_response(&context.error_registry, &DamasError::from_code(403)).await;
                 buf_try!(@try stream.write_all(response).await);
-                return Ok(Err(format!(
+                return Err(DamasError::Forbidden(format!(
                     "Directory listing denied: {:?}",
                     sanitized_base
                 )));
             }
         } else if !sanitized_base.is_file() {
-            let response = error_response(&context.error_registry, 404).await;
+            let response =
+                error_response(&context.error_registry, &DamasError::from_code(404)).await;
             buf_try!(@try stream.write_all(response).await);
-            return Ok(Err(format!("File not found: {:?}", sanitized_base)));
+            return Err(DamasError::NotFound(format!(
+                "File not found: {:?}",
+                sanitized_base
+            )));
         }
 
         tracing::debug!("Serving file: {:?}", final_file_path);
@@ -124,14 +148,16 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             Ok(file) => file,
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
-                    let response = error_response(&context.error_registry, 404).await;
+                    let response =
+                        error_response(&context.error_registry, &DamasError::from_code(404)).await;
                     buf_try!(@try stream.write_all(response).await);
-                    return Ok(Err(err.to_string()));
+                    return Err(DamasError::Io(err));
                 }
                 _ => {
-                    let response = error_response(&context.error_registry, 500).await;
+                    let response =
+                        error_response(&context.error_registry, &DamasError::from_code(500)).await;
                     buf_try!(@try stream.write_all(response).await);
-                    return Ok(Err(err.to_string()));
+                    return Err(DamasError::Io(err));
                 }
             },
         };
@@ -141,7 +167,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
 
         let headers = response(&metadata, mime_type, 200);
 
-        let (_, _returned_headers) = buf_try!(@try stream.write_all(headers).await);
+        buf_try!(@try stream.write_all(headers).await);
         let mut pos = 0;
         let mut file_buffer: Vec<u8> =
             Vec::with_capacity(context.config.server.file_read_buffer_size);
@@ -159,5 +185,5 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             pos += read_bytes as u64;
         }
     }
-    Ok(Ok(()))
+    Ok(())
 }

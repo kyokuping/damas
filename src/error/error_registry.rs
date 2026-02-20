@@ -92,8 +92,11 @@ mod tests {
         },
         error::*,
     };
+    use bytes::Bytes;
     use compio::BufResult;
+    use compio::fs::File;
     use compio::io::AsyncWriteAtExt;
+    use minijinja::Environment;
     use once_cell::sync::Lazy;
     use std::fs::File as StdFile;
     use std::io::Write;
@@ -102,7 +105,7 @@ mod tests {
 
     static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
         let mut env = Environment::new();
-        env.add_template("error", include_str!("../template/error.jinja"))
+        env.add_template("error", include_str!("../../template/error.jinja"))
             .unwrap();
         env
     });

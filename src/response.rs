@@ -52,7 +52,8 @@ pub fn response(metadata: &Metadata, mime: &str, status: u16) -> Bytes {
     res.freeze()
 }
 
-pub async fn error_response(registry: &ErrorRegistry, status: u16) -> Bytes {
+pub async fn error_response(registry: &ErrorRegistry, error: &crate::error::DamasError) -> Bytes {
+    let status = error.status_code();
     let body = registry.resolve(status).await;
     let mime = "text/html; charset=utf-8";
     build_http_response(status, mime, body, false)
@@ -95,7 +96,8 @@ mod tests {
         let mock_body = Bytes::from("<html>404 Not Found</html>");
         registry.get_cache().insert(404, mock_body.clone()).await;
 
-        let response = error_response(&registry, 404).await;
+        let error = crate::error::DamasError::NotFound("File not found".to_string());
+        let response = error_response(&registry, &error).await;
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.starts_with("HTTP/1.1 404 Not Found\r\n"));
@@ -109,10 +111,11 @@ mod tests {
     async fn test_build_full_response_unknown_code() {
         let registry = ErrorRegistry::new(&JINJA_ENV, 10);
 
-        let response = error_response(&registry, 999).await;
+        let error = crate::error::DamasError::Internal("Unknown error".to_string().into());
+        let response = error_response(&registry, &error).await;
         let res_str = String::from_utf8_lossy(&response);
 
-        assert!(res_str.contains("999 Unknown Error"));
+        assert!(res_str.contains("500 Internal Server Error"));
     }
 
     #[compio::test]

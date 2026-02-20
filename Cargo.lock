@@ -354,6 +354,7 @@ dependencies = [
  "moka",
  "once_cell",
  "tempfile",
+ "thiserror",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
