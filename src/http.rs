@@ -1,6 +1,6 @@
 use crate::ServerContext;
 use crate::error::DamasError;
-use crate::response::{error_response, index_page_response, response};
+use crate::response::{index_page_response, response};
 use crate::util::{get_mime_bytes, sanitize_path};
 use compio::buf::{IntoInner, IoBuf, buf_try};
 use compio::fs::File;
@@ -38,10 +38,6 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 continue;
             }
             Err(_e) => {
-                let response =
-                    error_response(&context.error_registry, &DamasError::from_code(400)).await;
-                buf_try!(@try stream.write_all(response).await);
-
                 let request_str = String::from_utf8_lossy(&buffer);
                 return Err(DamasError::RequestParse {
                     src: NamedSource::new("request", request_str.to_string()),
@@ -71,10 +67,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     }
 
     if request.method != Some("GET") {
-        let response = error_response(&context.error_registry, &DamasError::from_code(405)).await;
-        buf_try!(@try stream.write_all(response).await);
-
-        return Err(DamasError::Forbidden(format!(
+        return Err(DamasError::MethodNotAllowed(format!(
             "Unsupported HTTP method: {}",
             request.method.unwrap_or("UNKNOWN")
         )));
@@ -86,10 +79,6 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                 res
             }
             None => {
-                let response =
-                    error_response(&context.error_registry, &DamasError::from_code(404)).await;
-                buf_try!(@try stream.write_all(response).await);
-
                 return Err(DamasError::NotFound(format!(
                     "No matching route found for path: {}",
                     path_str
@@ -125,18 +114,12 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(());
                 }
-                let response =
-                    error_response(&context.error_registry, &DamasError::from_code(403)).await;
-                buf_try!(@try stream.write_all(response).await);
                 return Err(DamasError::Forbidden(format!(
                     "Directory listing denied: {:?}",
                     sanitized_base
                 )));
             }
         } else if !sanitized_base.is_file() {
-            let response =
-                error_response(&context.error_registry, &DamasError::from_code(404)).await;
-            buf_try!(@try stream.write_all(response).await);
             return Err(DamasError::NotFound(format!(
                 "File not found: {:?}",
                 sanitized_base
@@ -148,15 +131,9 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             Ok(file) => file,
             Err(err) => match err.kind() {
                 ErrorKind::NotFound => {
-                    let response =
-                        error_response(&context.error_registry, &DamasError::from_code(404)).await;
-                    buf_try!(@try stream.write_all(response).await);
                     return Err(DamasError::Io(err));
                 }
                 _ => {
-                    let response =
-                        error_response(&context.error_registry, &DamasError::from_code(500)).await;
-                    buf_try!(@try stream.write_all(response).await);
                     return Err(DamasError::Io(err));
                 }
             },

@@ -3,13 +3,12 @@ use compio::buf::{IoBuf, IoBufMut, IoVectoredBufMut};
 use compio::io::{AsyncRead, AsyncWrite};
 use damas::ServerContext;
 use damas::config::*;
-use damas::error::DamasError;
 use damas::error::ErrorRegistry;
 use damas::http::handle_request;
 use damas::index::IndexCache;
-use damas::response::error_response;
 use damas::router::RouterNode;
 use damas::util::sanitize_path;
+use http::StatusCode;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 use std::fs::File;
@@ -162,16 +161,11 @@ async fn test_handle_connection_invalid_request() {
     );
     let result = handle_request(&mut stream, &context).await;
     assert!(result.is_err());
-    assert!(
-        stream
-            .write_buf
-            .starts_with(b"HTTP/1.1 400 Bad Request\r\n"),
+    assert_eq!(
+        result.unwrap_err().to_response(),
+        (StatusCode::BAD_REQUEST, "Invalid HTTP Request".to_owned()),
         "Expected 400 Bad Request, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
-    );
-    assert_eq!(
-        stream.write_buf,
-        error_response(&error_registry, &DamasError::from_code(400)).await
     );
 }
 
@@ -196,18 +190,14 @@ async fn test_handle_connection_unsupported_method() {
     );
     let result = handle_request(&mut stream, &context).await;
     assert!(result.is_err());
-    assert!(
-        stream
-            .write_buf
-            .starts_with(b"HTTP/1.1 405 Method Not Allowed\r\n"),
+    assert_eq!(
+        result.unwrap_err().to_response(),
+        (
+            StatusCode::METHOD_NOT_ALLOWED,
+            "Unsupported HTTP method: POST".to_owned()
+        ),
         "Expected 405 Method Not Allowed, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
-    );
-    assert_eq!(
-        stream.write_buf,
-        error_response(&error_registry, &DamasError::from_code(405))
-            .await
-            .as_ref()
     );
 }
 
@@ -299,6 +289,8 @@ async fn test_handle_request_not_found() {
     let mut stream = RwMock::new(b"GET /nonexistent.html HTTP/1.1\r\n\r\n");
     let dir = tempdir().unwrap();
 
+    let file_path = dir.path().join("nonexistent.html").to_path_buf();
+
     let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
@@ -317,16 +309,14 @@ async fn test_handle_request_not_found() {
 
     let result = handle_request(&mut stream, &context).await;
     assert!(result.is_err());
-    assert!(
-        stream.write_buf.starts_with(b"HTTP/1.1 404 Not Found\r\n"),
+    assert_eq!(
+        result.unwrap_err().to_response(),
+        (
+            StatusCode::NOT_FOUND,
+            format!("File not found: \"{}\"", file_path.display())
+        ),
         "Expected 404 Not Found, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
-    );
-    assert_eq!(
-        stream.write_buf,
-        error_response(&error_registry, &DamasError::from_code(404))
-            .await
-            .as_ref()
     );
 }
 
@@ -334,12 +324,13 @@ async fn test_handle_request_not_found() {
 async fn test_handle_request_forbidden() {
     let mut stream = RwMock::new(b"GET / HTTP/1.1\r\n\r\n");
     let dir = tempdir().unwrap();
+    let dir_path = dir.path().join(PathBuf::new()).to_path_buf();
 
     let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
             path: PathBuf::from("/"),
             ty: Some(LocationConfigType::Prefix),
-            root: dir.path().to_path_buf(),
+            root: dir_path.clone(),
             autoindex: false,
             index: vec![],
         }];
@@ -353,18 +344,15 @@ async fn test_handle_request_forbidden() {
     );
 
     let result = handle_request(&mut stream, &context).await;
-    println!("Result: {:?}", result);
     assert!(result.is_err());
-    assert!(
-        stream.write_buf.starts_with(b"HTTP/1.1 403 Forbidden\r\n"),
+    assert_eq!(
+        result.unwrap_err().to_response(),
+        (
+            StatusCode::FORBIDDEN,
+            format!("Directory listing denied: \"{}\"", dir_path.display())
+        ),
         "Expected 403 Forbidden, got: {:?}",
         String::from_utf8_lossy(&stream.write_buf)
-    );
-    assert_eq!(
-        stream.write_buf,
-        error_response(&error_registry, &DamasError::from_code(403))
-            .await
-            .as_ref()
     );
 }
 
