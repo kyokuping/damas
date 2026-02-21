@@ -83,9 +83,14 @@ impl RouterHandler {
 
             if !found {
                 if self.is_auto_index {
-                    let response = index_page_response(&context.index_cache, &sanitized_base)
-                        .instrument(tracing::info_span!("serving_auto_index"))
-                        .await;
+                    let should_visible_path = format!("{}{}", self.matched_path, remaining_path);
+                    let response = index_page_response(
+                        &context.index_cache,
+                        &sanitized_base,
+                        &should_visible_path,
+                    )
+                    .instrument(tracing::info_span!("serving_auto_index"))
+                    .await;
                     buf_try!(@try stream.write_all(response).await);
                     return Ok(());
                 }
