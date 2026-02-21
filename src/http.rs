@@ -1,14 +1,8 @@
 use crate::ServerContext;
 use crate::error::DamasError;
-use crate::response::{index_page_response, response};
-use crate::util::{get_mime_bytes, sanitize_path};
-use compio::buf::{IntoInner, IoBuf, buf_try};
-use compio::fs::File;
-use compio::io::{AsyncRead, AsyncReadAt, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use compio::buf::buf_try;
+use compio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use miette::NamedSource;
-use std::io::ErrorKind;
-use std::path::PathBuf;
-use tracing::Instrument;
 
 pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     stream: &mut T,
@@ -73,7 +67,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         )));
     }
     if let Some(path_str) = request.path {
-        let (matched_handler, mut remaining_path) = match context.router.search(path_str) {
+        let (matched_handler, remaining_path) = match context.router.search(path_str) {
             Some(res) => {
                 tracing::info!("Found matching route for path: {}", path_str);
                 res
@@ -86,81 +80,9 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             }
         };
 
-        let base_root = PathBuf::from(&*matched_handler.root);
-        remaining_path = remaining_path.strip_prefix("/").unwrap_or(remaining_path);
-        let sanitized_base = sanitize_path(remaining_path, &base_root).ok_or(
-            DamasError::Internal(format!("invalid path: {path_str}").into()),
-        )?;
-
-        let mut final_file_path = sanitized_base.clone();
-
-        if sanitized_base.is_dir() {
-            let mut found = false;
-            {
-                for idx in matched_handler.index.iter() {
-                    let index_path = sanitized_base.join(idx);
-                    if index_path.is_file() {
-                        final_file_path = index_path;
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if !found {
-                if matched_handler.is_auto_index {
-                    let response = index_page_response(&context.index_cache, &sanitized_base)
-                        .instrument(tracing::info_span!("serving_auto_index"))
-                        .await;
-                    buf_try!(@try stream.write_all(response).await);
-                    return Ok(());
-                }
-                return Err(DamasError::Forbidden(format!(
-                    "Directory listing denied: {:?}",
-                    sanitized_base
-                )));
-            }
-        } else if !sanitized_base.is_file() {
-            return Err(DamasError::NotFound(format!(
-                "File not found: {:?}",
-                sanitized_base
-            )));
-        }
-
-        tracing::debug!("Serving file: {:?}", final_file_path);
-        let file = match File::open(&final_file_path).await {
-            Ok(file) => file,
-            Err(err) => match err.kind() {
-                ErrorKind::NotFound => {
-                    return Err(DamasError::Io(err));
-                }
-                _ => {
-                    return Err(DamasError::Io(err));
-                }
-            },
-        };
-        let metadata = file.metadata().await?;
-        let file_size = metadata.len();
-        let mime_type = get_mime_bytes(&final_file_path);
-
-        let headers = response(&metadata, mime_type, 200);
-
-        buf_try!(@try stream.write_all(headers).await);
-        let mut pos = 0;
-        let mut file_buffer: Vec<u8> =
-            Vec::with_capacity(context.config.server.file_read_buffer_size);
-
-        while pos < file_size {
-            let (read_bytes, returned_file_buffer) =
-                buf_try!(@try file.read_at(file_buffer, pos).await);
-            if read_bytes == 0 {
-                break;
-            }
-
-            let (_, returned_buffer) =
-                buf_try!(@try stream.write(returned_file_buffer.slice(..read_bytes)).await);
-            file_buffer = returned_buffer.into_inner();
-            pos += read_bytes as u64;
-        }
+        matched_handler
+            .handle_request(stream, context, path_str, remaining_path)
+            .await?;
     }
     Ok(())
 }
