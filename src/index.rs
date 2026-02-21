@@ -31,7 +31,11 @@ impl IndexCache {
         self.inner.insert(path, index).await;
     }
 
-    pub async fn render_index(&self, dir_path: &PathBuf) -> anyhow::Result<Bytes> {
+    pub async fn render_index(
+        &self,
+        dir_path: &PathBuf,
+        should_visible_path: &str,
+    ) -> anyhow::Result<Bytes> {
         let metadata = fs::metadata(dir_path)?;
 
         let current_mtime = metadata.modified()?;
@@ -69,7 +73,7 @@ impl IndexCache {
             .get_template("index")
             .map_err(|e| anyhow!("Failed to get template: {}", e))?;
         let rendered = template
-            .render(context!(files, dir_path => dir_path.display().to_string()))
+            .render(context!(files, should_visible_path))
             .map_err(|e| anyhow!("Failed to render template: {}", e))?;
 
         let rendered = Bytes::from(rendered);
@@ -111,7 +115,7 @@ mod tests {
 
         // --- First render (cache miss) ---
         let index_cache = IndexCache::new(&JINJA_ENV, 100);
-        let result1 = index_cache.render_index(&dir_path).await.unwrap();
+        let result1 = index_cache.render_index(&dir_path, "/").await.unwrap();
         let html1 = String::from_utf8(result1.to_vec()).unwrap();
 
         // Assertions
@@ -121,7 +125,7 @@ mod tests {
 
         // --- Second render (cache hit) ---
         // To ensure we get a cache hit, we render again without changing the directory.
-        let result2 = index_cache.render_index(&dir_path).await.unwrap();
+        let result2 = index_cache.render_index(&dir_path, "/").await.unwrap();
         assert_eq!(result1, result2);
 
         // --- Third render (cache miss after modification) ---
@@ -130,7 +134,7 @@ mod tests {
         // We need to sleep a bit to ensure the modification time is different.
         std::thread::sleep(std::time::Duration::from_millis(10));
 
-        let result3 = index_cache.render_index(&dir_path).await.unwrap();
+        let result3 = index_cache.render_index(&dir_path, "/").await.unwrap();
         let html3 = String::from_utf8(result3.to_vec()).unwrap();
 
         // Assertions for the updated render
@@ -145,7 +149,7 @@ mod tests {
     async fn test_render_index_not_found() {
         let dir_path = PathBuf::from("non_existent_directory_for_testing");
         let index_cache = IndexCache::new(&JINJA_ENV, 100);
-        let result = index_cache.render_index(&dir_path).await;
+        let result = index_cache.render_index(&dir_path, "/").await;
         assert!(result.is_err());
     }
 }

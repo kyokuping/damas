@@ -363,10 +363,11 @@ async fn test_handle_request_directory_listing() {
     File::create(dir.path().join("test_file.txt")).unwrap();
 
     let dir_path = dir.path().join(PathBuf::new()).to_path_buf();
+    let requested_path = "/";
 
     let (config, router, error_registry) = create_mock_context(|c| {
         c.server.locations = vec![LocationConfig {
-            path: PathBuf::from("/"),
+            path: PathBuf::from(requested_path),
             ty: Some(LocationConfigType::Prefix),
             root: dir_path.clone(),
             autoindex: true,
@@ -390,7 +391,7 @@ async fn test_handle_request_directory_listing() {
         "Expected 200 OK for directory listing"
     );
     assert!(
-        response_body.contains(&format!("<h1>Index of {}</h1>", dir_path.clone().display())),
+        response_body.contains(&format!("<h1>Index of {}</h1>", requested_path)),
         "Response should contain directory listing"
     );
     assert!(

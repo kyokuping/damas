@@ -59,9 +59,13 @@ pub async fn error_response(registry: &ErrorRegistry, error: &crate::error::Dama
     build_http_response(status, mime, body, false)
 }
 
-pub async fn index_page_response(index_cache: &IndexCache, dir_path: &PathBuf) -> Bytes {
+pub async fn index_page_response(
+    index_cache: &IndexCache,
+    dir_path: &PathBuf,
+    should_visible_path: &str,
+) -> Bytes {
     let index = index_cache
-        .render_index(dir_path)
+        .render_index(dir_path, should_visible_path)
         .await
         .unwrap_or_else(|_| {
             Bytes::from("<html><body><h1>Failed to render index page</h1></body></html>")
@@ -146,7 +150,7 @@ mod tests {
         File::create(dir.path().join("file2.txt")).unwrap();
 
         let index_cache = IndexCache::new(&JINJA_ENV, 10);
-        let response = index_page_response(&index_cache, &dir_path).await;
+        let response = index_page_response(&index_cache, &dir_path, "/").await;
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.starts_with("HTTP/1.1 200 OK\r\n"));
@@ -160,7 +164,7 @@ mod tests {
         let dir_path = PathBuf::from("non_existent_directory_for_testing");
         let index_cache = IndexCache::new(&JINJA_ENV, 10);
 
-        let response = index_page_response(&index_cache, &dir_path).await;
+        let response = index_page_response(&index_cache, &dir_path, "/").await;
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.starts_with("HTTP/1.1 200 OK\r\n"));
