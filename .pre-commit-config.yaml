@@ -11,28 +11,21 @@ repos:
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt -- --check
-        language: rust
+        language: system
         types: [rust]
         pass_filenames: false
 
       - id: cargo-check
         name: cargo check
         entry: cargo check
-        language: rust
+        language: system
         types: [rust]
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy -- -D warnings
-        language: rust
-        types: [rust]
-        pass_filenames: false
-
-      - id: cargo-tests
-        name: cargo test
-        entry: cargo test
-        language: rust
+        language: system
         types: [rust]
         pass_filenames: false
 
@@ -40,6 +33,14 @@ repos:
         name: cargo shear
         description: Remove unused dependencies.
         entry: cargo shear --fix
-        language: rust
+        language: system
         types: [rust]
         pass_filenames: false
+
+      - id: cargo-tests
+        name: cargo nextest
+        entry: cargo nextest run
+        language: system
+        types: [rust]
+        pass_filenames: false
+        always_run: true
