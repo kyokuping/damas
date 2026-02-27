@@ -1,0 +1,22 @@
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  precision: 2
+  round: down
+  range: "50...90"
+
+  status:
+    project:
+      default:
+        informational: true
+        target: 80
+    patch:
+      default:
+        informational: true
+        target: 80
+
+ignore:
+  - "**/tests/**"
+  - "**/target/**"
+  - "src/main.rs"
