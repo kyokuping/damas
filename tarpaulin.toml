@@ -1,0 +1,16 @@
+[configs]
+exclude-files = [
+    "src/main.rs",
+    "test/*",
+]
+
+ignore-config = true
+ignore-tests = true
+ignore-macros = true
+
+follow-exec = true
+forward = true
+
+ignore-panics = true
+
+out = ["Html", "Xml"]
