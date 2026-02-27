@@ -28,6 +28,10 @@ name = "main_test"
 path = "test/main_test.rs"
 harness = true
 
+[package.metadata.tarpaulin]
+ignore-tests = true
+exclude-files = ["tests/*"]
+
 [profile.release]
 strip = true
 lto = true
