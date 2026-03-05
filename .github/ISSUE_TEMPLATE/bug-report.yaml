@@ -1,0 +1,38 @@
+name: Bug Report
+description: Report a bug.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Bug Report
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Please provide a detailed description of the bug you encountered.
+      placeholder: "e.g., Server crashes when handling 100+ concurrent connections on Windows."
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Describe the environment where the bug was encountered.
+      placeholder: "e.g., Windows 11, Damas v0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: "How can we encounter this bug?"
+      placeholder: |
+        e.g.,
+        1. Run 'damas --config config.toml'
+        2. Send 1000 requests using 'wrk'
+        3. See error 'Broken pipe'
+    validations:
+      required: true
