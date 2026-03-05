@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest a new feature.
+title: "[Feat]: "
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Damas Feature Design
+        What is the feature you would like to request?
+  - type: textarea
+    id: overview
+    attributes:
+      label: Overview
+      description: Please provide a brief overview of the feature you would like to request.
+      placeholder: "e.g., Provide Windows support."
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: "Detailed Description"
+      description: Explain the core logic or the specific behavior of the feature.
+      placeholder: |
+        e.g,
+        - Handle Windows-style line endings (CRLF) and file paths (\)
+        - Implementation for running Damas as a background Windows Service.
+        - Configure GitHub Actions to use 'windows-latest' runner for validation.
+    validations:
+      required: true
+  - type: textarea
+    id: technical_advice
+    attributes:
+      label: technical advice
+      description: Technical points, potential side effects, or implementation tips.
+      placeholder: |
+        e.g.,
+        - Using Windows IOCP requires careful memory pinning.
+        - The current Damas 'justfile' needs to be compatible with PowerShell.
+    validations:
+      required: false
