@@ -1,6 +1,10 @@
 server {
     listen 80
     server-name "127.0.0.1"
+    tls {
+        cert ""
+        key ""
+    }
     location "/" {
         root "/var/www/html"
         index "index.html" "index.htm"
@@ -26,7 +30,10 @@ server {
             code 500 "500.html"
         }
     }
+}
 
+performance {
+    crypto-provider ""
     connection-buffer-size 4096
     file-read-buffer-size 8192
     max-header-count 64

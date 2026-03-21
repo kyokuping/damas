@@ -88,7 +88,7 @@ mod tests {
     use crate::{
         config::{
             Config, ErrorCodeEntry, ErrorFiles, ErrorPage, LocationConfig, LocationConfigType,
-            ServerConfig,
+            PerformanceConfig, ServerConfig,
         },
         error::*,
     };
@@ -134,10 +134,13 @@ mod tests {
                         ..Default::default()
                     },
                 ],
-                error_pages: vec![],
+                ..Default::default()
+            },
+            performance: PerformanceConfig {
                 connection_buffer_size: 4096,
                 file_read_buffer_size: 8192,
                 max_header_count: 64,
+                ..Default::default()
             },
         };
 

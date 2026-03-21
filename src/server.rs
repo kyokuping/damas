@@ -83,7 +83,6 @@ impl Server {
         }
     }
 }
-
 async fn handle_connection<T: AsyncRead + AsyncWrite>(mut stream: T, context: ServerContext) {
     if let Err(e) = handle_request(&mut stream, &context)
         .instrument(Span::current())
@@ -154,9 +153,13 @@ mod tests {
                         ],
                     },
                 }],
+                ..Default::default()
+            },
+            performance: PerformanceConfig {
                 connection_buffer_size: 4096,
                 file_read_buffer_size: 8192,
                 max_header_count: 64,
+                ..Default::default()
             },
         };
 

@@ -126,9 +126,13 @@ where
                     ],
                 },
             }],
+            ..Default::default()
+        },
+        performance: PerformanceConfig {
             connection_buffer_size: 4096,
             file_read_buffer_size: 8192,
             max_header_count: 64,
+            ..Default::default()
         },
     };
     modifier(&mut config);

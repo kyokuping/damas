@@ -8,7 +8,7 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
     stream: &mut T,
     context: &ServerContext,
 ) -> Result<(), DamasError> {
-    let mut buffer = Vec::with_capacity(context.config.server.connection_buffer_size);
+    let mut buffer = Vec::with_capacity(context.config.performance.connection_buffer_size);
 
     loop {
         let (bytes_read, buf) = buf_try!(@try stream.append(buffer).await);
@@ -18,8 +18,8 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
             return Ok(());
         }
 
-        let mut headers =
-            vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
+        let mut headers = vec![httparse::EMPTY_HEADER; context.config.performance.max_header_count]
+            .into_boxed_slice();
         let mut request = httparse::Request::new(&mut headers);
 
         match request.parse(&buffer) {
@@ -41,8 +41,8 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         }
     }
 
-    let mut headers =
-        vec![httparse::EMPTY_HEADER; context.config.server.max_header_count].into_boxed_slice();
+    let mut headers = vec![httparse::EMPTY_HEADER; context.config.performance.max_header_count]
+        .into_boxed_slice();
     let mut request = httparse::Request::new(&mut headers);
     match request.parse(&buffer) {
         Ok(_status) => {
