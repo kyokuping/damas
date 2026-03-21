@@ -4,6 +4,7 @@ use crate::index::IndexCache;
 use crate::router::RouterNode;
 use std::sync::Arc;
 
+pub mod cert;
 pub mod config;
 pub mod error;
 pub mod http;

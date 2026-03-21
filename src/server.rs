@@ -1,4 +1,5 @@
 use crate::ServerContext;
+use crate::cert::validate_server_config;
 use crate::config::Config;
 use crate::error::ErrorRegistry;
 use crate::http::handle_request;
@@ -8,6 +9,7 @@ use crate::router::RouterNode;
 use compio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use compio::net::TcpListener;
 use compio::runtime::spawn;
+use compio::tls::TlsAcceptor;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 use tracing::{Instrument, Span, info_span};
@@ -25,6 +27,7 @@ pub struct Server {
     router: RouterNode,
     config: Config,
     error_registry: ErrorRegistry,
+    acceptor: Option<TlsAcceptor>,
 }
 
 impl Server {
@@ -34,11 +37,21 @@ impl Server {
         let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
         error_registry.init_with_config(&config).await;
         tracing::info!("initialized error registry");
+        let acceptor = config.server.tls.as_ref().and_then(|ssl| {
+            match validate_server_config(&ssl.cert, &ssl.key) {
+                Ok(server_config) => Some(TlsAcceptor::from(server_config)),
+                Err(e) => {
+                    tracing::info!("Error validating TLS config: {}", e);
+                    None
+                }
+            }
+        });
 
         Ok(Self {
             router,
             config,
             error_registry,
+            acceptor,
         })
     }
 
@@ -47,6 +60,7 @@ impl Server {
             router,
             config,
             error_registry,
+            acceptor,
         } = self;
         let index_cache = IndexCache::new(&JINJA_ENV, 100);
         let context = ServerContext::new(config, router, error_registry, index_cache);
@@ -63,7 +77,7 @@ impl Server {
 
         loop {
             match listener.accept().await {
-                Ok((stream, address)) => {
+                Ok((tcp_stream, address)) => {
                     tracing::info!("Accepted connection from {}", address);
                     let ctx = context.clone();
                     let span = info_span!(
@@ -73,8 +87,23 @@ impl Server {
                         path = tracing::field::Empty,
                         status = tracing::field::Empty
                     );
-                    spawn(async move { handle_connection(stream, ctx).instrument(span).await })
-                        .detach();
+                    let acceptor = acceptor.clone();
+                    spawn(async move {
+                        match acceptor {
+                            Some(acceptor) => match acceptor.accept(tcp_stream).await {
+                                Ok(tls_stream) => {
+                                    handle_connection(tls_stream, ctx).instrument(span).await;
+                                }
+                                Err(e) => {
+                                    tracing::error!("TLS accept error: {}", e);
+                                }
+                            },
+                            None => {
+                                handle_connection(tcp_stream, ctx).instrument(span).await;
+                            }
+                        };
+                    })
+                    .detach();
                 }
                 Err(err) => {
                     tracing::error!("Error accepting connection: {}", err);
