@@ -127,7 +127,7 @@ impl RouterHandler {
         buf_try!(@try stream.write_all(headers).await);
         let mut pos = 0;
         let mut file_buffer: Vec<u8> =
-            Vec::with_capacity(context.config.server.file_read_buffer_size);
+            Vec::with_capacity(context.config.performance.file_read_buffer_size);
 
         while pos < file_size {
             let (read_bytes, returned_file_buffer) =

@@ -17,10 +17,15 @@ async fn main() -> anyhow::Result<()> {
                 locations = c.server.locations.len(),
                 "🔮 parsed config.kdl and initialized server components"
             );
+            if c.server.tls.is_some() {
+                tracing::debug!(
+                    crypto_provider = ?c.performance.crypto_provider,
+                )
+            };
             tracing::debug!(
-                buffer_size = c.server.file_read_buffer_size,
+                buffer_size = c.performance.file_read_buffer_size,
                 error_pages = c.server.error_pages.len(),
-                max_headers = c.server.max_header_count,
+                max_headers = c.performance.max_header_count,
                 "detailed configuration loaded"
             );
             c

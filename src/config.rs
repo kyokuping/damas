@@ -6,24 +6,37 @@ use std::str::FromStr;
 pub struct Config {
     #[knus(child)]
     pub server: ServerConfig,
+    #[knus(child)]
+    pub performance: PerformanceConfig,
 }
 
-#[derive(knus::Decode, Clone, Debug, PartialEq)]
+#[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
 pub struct ServerConfig {
     #[knus(child, unwrap(argument))]
     pub listen: u16,
     #[knus(child, unwrap(argument))]
     pub server_name: String,
+    #[knus(child)]
+    pub tls: Option<TLSConfig>,
     #[knus(children(name = "location"))]
     pub locations: Vec<LocationConfig>,
     #[knus(children(name = "error-page"))]
     pub error_pages: Vec<ErrorPage>,
+}
+
+#[derive(knus::Decode, Clone, Debug, PartialEq)]
+pub struct TLSConfig {
     #[knus(child, unwrap(argument))]
-    pub connection_buffer_size: usize,
+    pub cert: PathBuf,
     #[knus(child, unwrap(argument))]
-    pub file_read_buffer_size: usize,
-    #[knus(child, unwrap(argument))]
-    pub max_header_count: usize,
+    pub key: PathBuf,
+}
+impl TLSConfig {
+    pub fn validate(&self) -> miette::Result<()> {
+        check_path_safety(&self.cert, "cert")?;
+        check_path_safety(&self.key, "key")?;
+        Ok(())
+    }
 }
 
 #[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
@@ -61,53 +74,14 @@ impl FromStr for LocationConfigType {
 }
 impl LocationConfig {
     pub fn validate(&self) -> miette::Result<()> {
-        self.check_path_safety(&self.path, "path")?;
-        self.check_path_safety(&self.root, "root")?;
+        check_path_safety(&self.path, "path")?;
+        check_path_safety(&self.root, "root")?;
         for (i, filename) in self.index.iter().enumerate() {
-            if !self.is_pure_filename(filename) {
+            if !is_pure_filename(filename) {
                 return Err(miette!("config Error: index {},{}", i, filename));
             }
         }
         Ok(())
-    }
-    fn check_path_safety(&self, target: &Path, field_name: &str) -> miette::Result<()> {
-        let mut depth = 0;
-
-        for component in target.components() {
-            match component {
-                Component::Normal(_) => depth += 1,
-                Component::ParentDir => {
-                    depth -= 1;
-                    if depth < 0 {
-                        return Err(miette!(
-                            "config Error: ParentDir '{}', {:?}",
-                            field_name,
-                            target
-                        ));
-                    }
-                }
-                Component::CurDir => {}
-                Component::RootDir => {}
-                Component::Prefix(_) => {
-                    return Err(miette!(
-                        "config Error: Prefix '{}', {:?}",
-                        field_name,
-                        target
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-    fn is_pure_filename(&self, filename: &str) -> bool {
-        let path = Path::new(filename);
-        let mut components = path.components();
-
-        match components.next() {
-            Some(Component::Normal(_)) => {}
-            _ => return false,
-        }
-        components.next().is_none()
     }
 }
 
@@ -135,6 +109,23 @@ pub struct ErrorCodeEntry {
     pub file: PathBuf,
 }
 
+#[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
+pub struct PerformanceConfig {
+    #[knus(child, default=CryptoProvider::Ring, unwrap(argument))]
+    pub crypto_provider: CryptoProvider,
+    #[knus(child, unwrap(argument))]
+    pub connection_buffer_size: usize,
+    #[knus(child, unwrap(argument))]
+    pub file_read_buffer_size: usize,
+    #[knus(child, unwrap(argument))]
+    pub max_header_count: usize,
+}
+#[derive(knus::DecodeScalar, Debug, Clone, Default, PartialEq)]
+pub enum CryptoProvider {
+    #[default]
+    Ring,
+    AwsLcRs,
+}
 impl Config {
     pub fn validate(&self) -> miette::Result<()> {
         for loc in &self.server.locations {
@@ -150,6 +141,46 @@ pub fn parse_config(config_path: &str) -> miette::Result<Config> {
     Ok(config)
 }
 
+fn check_path_safety(target: &Path, field_name: &str) -> miette::Result<()> {
+    let mut depth = 0;
+
+    for component in target.components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    return Err(miette!(
+                        "config Error: ParentDir '{}', {:?}",
+                        field_name,
+                        target
+                    ));
+                }
+            }
+            Component::CurDir => {}
+            Component::RootDir => {}
+            Component::Prefix(_) => {
+                return Err(miette!(
+                    "config Error: Prefix '{}', {:?}",
+                    field_name,
+                    target
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+fn is_pure_filename(filename: &str) -> bool {
+    let path = Path::new(filename);
+    let mut components = path.components();
+
+    match components.next() {
+        Some(Component::Normal(_)) => {}
+        _ => return false,
+    }
+    components.next().is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,50 +188,19 @@ mod tests {
 
     #[test]
     fn test_is_pure_filename() {
-        let config = LocationConfig {
-            path: PathBuf::new(),
-            root: PathBuf::new(),
-            index: vec![],
-            ty: None,
-            ..Default::default()
-        };
-        assert!(config.is_pure_filename("file.txt"));
-        assert!(config.is_pure_filename("file"));
-        assert!(!config.is_pure_filename("/path/to/file"));
-        assert!(!config.is_pure_filename("../file"));
-        assert!(!config.is_pure_filename(""));
+        assert!(is_pure_filename("file.txt"));
+        assert!(is_pure_filename("file"));
+        assert!(!is_pure_filename("/path/to/file"));
+        assert!(!is_pure_filename("../file"));
+        assert!(!is_pure_filename(""));
     }
 
     #[test]
     fn test_check_path_safety() {
-        let config = LocationConfig {
-            path: PathBuf::new(),
-            root: PathBuf::new(),
-            index: vec![],
-            ty: None,
-            ..Default::default()
-        };
-
-        assert!(
-            config
-                .check_path_safety(Path::new("/safe/path"), "path")
-                .is_ok()
-        );
-        assert!(
-            config
-                .check_path_safety(Path::new("/safe/../path"), "path")
-                .is_ok()
-        );
-        assert!(
-            config
-                .check_path_safety(Path::new("../unsafe/path"), "path")
-                .is_err()
-        );
-        assert!(
-            config
-                .check_path_safety(Path::new("/unsafe/../../path"), "path")
-                .is_err()
-        );
+        assert!(check_path_safety(Path::new("/safe/path"), "path").is_ok());
+        assert!(check_path_safety(Path::new("/safe/../path"), "path").is_ok());
+        assert!(check_path_safety(Path::new("../unsafe/path"), "path").is_err());
+        assert!(check_path_safety(Path::new("/unsafe/../../path"), "path").is_err());
     }
 
     #[test]
@@ -242,6 +242,69 @@ mod tests {
         assert!(result.is_err());
     }
     #[test]
+    fn test_tls_config_validate() {
+        let valid_tls = TLSConfig {
+            cert: PathBuf::from("/etc/tls/cert.pem"),
+            key: PathBuf::from("/etc/tls/key.pem"),
+        };
+        assert!(valid_tls.validate().is_ok());
+
+        let invalid_tls = TLSConfig {
+            cert: PathBuf::from("../cert.pem"),
+            key: PathBuf::from("/etc/tls/key.pem"),
+        };
+        assert!(invalid_tls.validate().is_err());
+    }
+
+    #[test]
+    fn test_performance_config_defaults() {
+        let config_str = r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            performance {
+                connection-buffer-size 1024
+                file-read-buffer-size 2048
+                max-header-count 32
+            }
+        "#;
+        let config = knus::parse::<Config>("test.kdl", config_str).unwrap();
+        assert_eq!(config.performance.crypto_provider, CryptoProvider::Ring);
+        assert_eq!(config.performance.connection_buffer_size, 1024);
+    }
+
+    #[test]
+    fn test_parse_with_tls_and_performance() {
+        let config_str = r#"
+            server {
+                listen 443
+                server-name "example.com"
+                tls {
+                    cert "/path/to/cert"
+                    key "/path/to/key"
+                }
+            }
+            performance {
+                crypto-provider "aws-lc-rs"
+                connection-buffer-size 8192
+                file-read-buffer-size 16384
+                max-header-count 128
+            }
+        "#;
+        let config = knus::parse::<Config>("test.kdl", config_str).unwrap();
+
+        let tls = config.server.tls.as_ref().unwrap();
+        assert_eq!(tls.cert, PathBuf::from("/path/to/cert"));
+        assert_eq!(tls.key, PathBuf::from("/path/to/key"));
+
+        assert_eq!(config.performance.crypto_provider, CryptoProvider::AwsLcRs);
+        assert_eq!(config.performance.connection_buffer_size, 8192);
+        assert_eq!(config.performance.file_read_buffer_size, 16384);
+        assert_eq!(config.performance.max_header_count, 128);
+    }
+
+    #[test]
     fn test_parse() {
         let config = r#"
             server {
@@ -266,6 +329,8 @@ mod tests {
                         code 404 "forbidden.html"
                     }
                 }
+            }
+            performance {
                 connection-buffer-size 4096
                 file-read-buffer-size 8192
                 max-header-count 64
@@ -282,6 +347,7 @@ mod tests {
                 server: ServerConfig {
                     listen: 80,
                     server_name: "localhost".to_string(),
+                    tls: None,
                     locations: vec![
                         LocationConfig {
                             path: Path::new("/").to_path_buf(),
@@ -322,10 +388,13 @@ mod tests {
                             ]
                         }
                     },],
+                },
+                performance: PerformanceConfig {
                     connection_buffer_size: 4096,
                     file_read_buffer_size: 8192,
                     max_header_count: 64,
-                }
+                    ..Default::default()
+                },
             }
         )
     }
