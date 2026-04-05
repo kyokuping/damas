@@ -2,8 +2,8 @@ server {
     listen 80
     server-name "127.0.0.1"
     tls {
-        cert ""
-        key ""
+        cert "/var/www/cert.pem"
+        key "/var/www/key.pem"
     }
     location "/" {
         root "/var/www/html"

@@ -1,5 +1,5 @@
 use crate::ServerContext;
-use crate::cert::validate_server_config;
+use crate::cert::build_rustls_server_config;
 use crate::config::Config;
 use crate::error::ErrorRegistry;
 use crate::http::handle_request;
@@ -37,15 +37,24 @@ impl Server {
         let error_registry = ErrorRegistry::new(&JINJA_ENV, 100);
         error_registry.init_with_config(&config).await;
         tracing::info!("initialized error registry");
-        let acceptor = config.server.tls.as_ref().and_then(|ssl| {
-            match validate_server_config(&ssl.cert, &ssl.key) {
-                Ok(server_config) => Some(TlsAcceptor::from(server_config)),
-                Err(e) => {
-                    tracing::info!("Error validating TLS config: {}", e);
-                    None
-                }
-            }
-        });
+        let provider = &config.performance.crypto_provider;
+        let acceptor = if let Some(ssl) = &config.server.tls {
+            let rustls_config = build_rustls_server_config(
+                provider.clone().into(),
+                ssl.cert.clone(),
+                ssl.key.clone(),
+            )
+            .map_err(|e| {
+                tracing::error!("Invalid TLS configuration: {}", e);
+                e
+            })?;
+
+            Some(TlsAcceptor::from(rustls_config))
+        } else {
+            None
+        };
+
+        tracing::info!("initialized with crypto provider: {:?}", provider);
 
         Ok(Self {
             router,
