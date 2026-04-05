@@ -1,16 +1,24 @@
+use anyhow::{Context, anyhow};
+use knus::ast::{Literal, TypeName};
+use knus::decode::Kind;
+use knus::errors::{DecodeError, ExpectedType};
+use knus::span::Spanned;
+use knus::traits::ErrorSpan;
 use miette::{IntoDiagnostic, miette};
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-#[derive(knus::Decode, Clone, Debug, PartialEq)]
+#[derive(knus::Decode, Debug, PartialEq)]
 pub struct Config {
     #[knus(child)]
     pub server: ServerConfig,
-    #[knus(child)]
+    #[knus(child, default)]
     pub performance: PerformanceConfig,
 }
 
-#[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
+#[derive(knus::Decode, Debug, Default, PartialEq)]
 pub struct ServerConfig {
     #[knus(child, unwrap(argument))]
     pub listen: u16,
@@ -24,18 +32,150 @@ pub struct ServerConfig {
     pub error_pages: Vec<ErrorPage>,
 }
 
-#[derive(knus::Decode, Clone, Debug, PartialEq)]
+#[derive(knus::Decode, Debug, PartialEq)]
 pub struct TLSConfig {
     #[knus(child, unwrap(argument))]
-    pub cert: PathBuf,
+    pub cert: TLSCertificate,
     #[knus(child, unwrap(argument))]
-    pub key: PathBuf,
+    pub key: TLSPrivateKey,
 }
-impl TLSConfig {
-    pub fn validate(&self) -> miette::Result<()> {
-        check_path_safety(&self.cert, "cert")?;
-        check_path_safety(&self.key, "key")?;
-        Ok(())
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TLSCertificate(pub CertificateDer<'static>);
+
+impl FromStr for TLSCertificate {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(PathBuf::from(s))
+    }
+}
+
+impl TryFrom<PathBuf> for TLSCertificate {
+    type Error = anyhow::Error;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        let data =
+            std::fs::read(&path).with_context(|| format!("couldn't find cert file: {:?}", path))?;
+
+        let mut reader = &data[..];
+        let cert = rustls_pemfile::certs(&mut reader)
+            .next()
+            .ok_or_else(|| anyhow!("couldn't find adequate cert file: {:?}", path))??;
+
+        Ok(TLSCertificate(cert))
+    }
+}
+
+impl From<TLSCertificate> for CertificateDer<'static> {
+    fn from(value: TLSCertificate) -> Self {
+        value.0
+    }
+}
+
+impl<S: ErrorSpan> knus::DecodeScalar<S> for TLSCertificate {
+    fn raw_decode(
+        val: &Spanned<Literal, S>,
+        _: &mut knus::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        match &**val {
+            Literal::String(s) => {
+                let path = Path::new(&**s);
+                check_path_safety(path, "cert").map_err(|e| DecodeError::Conversion {
+                    span: val.span().clone(),
+                    source: e.into(),
+                })?;
+                CertificateDer::from_pem_file(path)
+                    .map(TLSCertificate)
+                    .map_err(|e| DecodeError::Conversion {
+                        span: val.span().clone(),
+                        source: Box::new(e),
+                    })
+            }
+            _ => Err(DecodeError::scalar_kind(Kind::String, val)),
+        }
+    }
+    fn type_check(type_name: &Option<Spanned<TypeName, S>>, ctx: &mut knus::decode::Context<S>) {
+        if let Some(typ) = type_name {
+            ctx.emit_error(DecodeError::TypeName {
+                span: typ.span().clone(),
+                found: Some((**typ).clone()),
+                expected: ExpectedType::no_type(),
+                rust_type: "TLSCertificate",
+            });
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct TLSPrivateKey(pub PrivateKeyDer<'static>);
+
+impl TryFrom<PathBuf> for TLSPrivateKey {
+    type Error = anyhow::Error;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        let data =
+            std::fs::read(&path).with_context(|| format!("couldn't find key file: {:?}", path))?;
+
+        let mut reader = &data[..];
+        let key = rustls_pemfile::private_key(&mut reader)
+            .map_err(|e| anyhow!("PEM parsing failed: {}", e))?
+            .ok_or_else(|| anyhow!("key file is empty: {:?}", path))?;
+
+        Ok(TLSPrivateKey(key))
+    }
+}
+
+impl FromStr for TLSPrivateKey {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(PathBuf::from(s))
+    }
+}
+
+impl From<TLSPrivateKey> for PrivateKeyDer<'static> {
+    fn from(value: TLSPrivateKey) -> Self {
+        value.0
+    }
+}
+
+impl Clone for TLSPrivateKey {
+    fn clone(&self) -> Self {
+        TLSPrivateKey(self.0.clone_key())
+    }
+}
+
+impl<S: ErrorSpan> knus::DecodeScalar<S> for TLSPrivateKey {
+    fn raw_decode(
+        val: &Spanned<Literal, S>,
+        _: &mut knus::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        match &**val {
+            Literal::String(s) => {
+                let path = Path::new(&**s);
+                check_path_safety(path, "key").map_err(|e| DecodeError::Conversion {
+                    span: val.span().clone(),
+                    source: e.into(),
+                })?;
+                PrivateKeyDer::from_pem_file(path)
+                    .map(TLSPrivateKey)
+                    .map_err(|e| DecodeError::Conversion {
+                        span: val.span().clone(),
+                        source: e.into(),
+                    })
+            }
+            _ => Err(DecodeError::scalar_kind(Kind::String, val)),
+        }
+    }
+
+    fn type_check(type_name: &Option<Spanned<TypeName, S>>, ctx: &mut knus::decode::Context<S>) {
+        if let Some(typ) = type_name {
+            ctx.emit_error(DecodeError::TypeName {
+                span: typ.span().clone(),
+                found: Some((**typ).clone()),
+                expected: ExpectedType::no_type(),
+                rust_type: "TLSPrivateKey",
+            });
+        }
     }
 }
 
@@ -111,20 +251,61 @@ pub struct ErrorCodeEntry {
 
 #[derive(knus::Decode, Clone, Debug, Default, PartialEq)]
 pub struct PerformanceConfig {
-    #[knus(child, default=CryptoProvider::Ring, unwrap(argument))]
-    pub crypto_provider: CryptoProvider,
-    #[knus(child, unwrap(argument))]
+    #[knus(child, default, unwrap(argument))]
+    pub crypto_provider: CryptoType,
+    #[knus(child, default = 4096, unwrap(argument))]
     pub connection_buffer_size: usize,
-    #[knus(child, unwrap(argument))]
+    #[knus(child, default = 8019, unwrap(argument))]
     pub file_read_buffer_size: usize,
-    #[knus(child, unwrap(argument))]
+    #[knus(child, default = 64, unwrap(argument))]
     pub max_header_count: usize,
 }
-#[derive(knus::DecodeScalar, Debug, Clone, Default, PartialEq)]
-pub enum CryptoProvider {
-    #[default]
+#[derive(knus::DecodeScalar, Debug, Clone, PartialEq)]
+pub enum CryptoType {
+    #[knus(rename = "ring")]
     Ring,
+    #[knus(rename = "aws_lc_rs")]
     AwsLcRs,
+}
+
+impl Default for CryptoType {
+    fn default() -> CryptoType {
+        #[cfg(feature = "aws_lc_rs")]
+        return CryptoType::AwsLcRs;
+
+        #[cfg(all(not(feature = "aws_lc_rs"), feature = "ring"))]
+        return CryptoType::Ring;
+
+        #[cfg(all(not(feature = "aws_lc_rs"), not(feature = "ring")))]
+        compile_error!("At least one of 'ring' or 'aws_lc_rs' features must be enabled!");
+    }
+}
+
+impl From<CryptoType> for rustls::crypto::CryptoProvider {
+    fn from(ty: CryptoType) -> Self {
+        match ty {
+            CryptoType::Ring => {
+                #[cfg(feature = "ring")]
+                {
+                    rustls::crypto::ring::default_provider()
+                }
+                #[cfg(not(feature = "ring"))]
+                {
+                    panic!("'ring' feature is not enabled. Check your Cargo.toml");
+                }
+            }
+            CryptoType::AwsLcRs => {
+                #[cfg(feature = "aws_lc_rs")]
+                {
+                    rustls::crypto::aws_lc_rs::default_provider()
+                }
+                #[cfg(not(feature = "aws_lc_rs"))]
+                {
+                    panic!("'aws-lc-rs' feature is not enabled. Check your Cargo.toml");
+                }
+            }
+        }
+    }
 }
 impl Config {
     pub fn validate(&self) -> miette::Result<()> {
@@ -141,7 +322,7 @@ pub fn parse_config(config_path: &str) -> miette::Result<Config> {
     Ok(config)
 }
 
-fn check_path_safety(target: &Path, field_name: &str) -> miette::Result<()> {
+fn check_path_safety(target: &Path, field_name: &str) -> Result<(), miette::Error> {
     let mut depth = 0;
 
     for component in target.components() {
@@ -184,7 +365,22 @@ fn is_pure_filename(filename: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile;
+
+    const INVALID_CERT: &[u8] = b"-----BEGIN CERTIFICATE-----\nfoobar\n-----END CERTIFICATE-----";
+    const INVALID_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nfoobar=\n-----END PRIVATE KEY-----";
+
+    fn mock_cert() -> (TLSCertificate, TLSPrivateKey) {
+        let mock_cert_path = Path::new("test/fixtures/tls/cert.pem");
+        let mock_cert = fs::read_to_string(mock_cert_path).unwrap();
+        let mock_key_path = Path::new("test/fixtures/tls/key.pem");
+        let mock_key = fs::read_to_string(mock_key_path).unwrap();
+        (
+            TLSCertificate(CertificateDer::from_pem_slice(mock_cert.as_bytes()).unwrap()),
+            TLSPrivateKey(PrivateKeyDer::from_pem_slice(mock_key.as_bytes()).unwrap()),
+        )
+    }
 
     #[test]
     fn test_is_pure_filename() {
@@ -241,20 +437,6 @@ mod tests {
         let result = parse_config(config_path.to_str().unwrap());
         assert!(result.is_err());
     }
-    #[test]
-    fn test_tls_config_validate() {
-        let valid_tls = TLSConfig {
-            cert: PathBuf::from("/etc/tls/cert.pem"),
-            key: PathBuf::from("/etc/tls/key.pem"),
-        };
-        assert!(valid_tls.validate().is_ok());
-
-        let invalid_tls = TLSConfig {
-            cert: PathBuf::from("../cert.pem"),
-            key: PathBuf::from("/etc/tls/key.pem"),
-        };
-        assert!(invalid_tls.validate().is_err());
-    }
 
     #[test]
     fn test_performance_config_defaults() {
@@ -270,7 +452,7 @@ mod tests {
             }
         "#;
         let config = knus::parse::<Config>("test.kdl", config_str).unwrap();
-        assert_eq!(config.performance.crypto_provider, CryptoProvider::Ring);
+        assert_eq!(config.performance.crypto_provider, CryptoType::Ring);
         assert_eq!(config.performance.connection_buffer_size, 1024);
     }
 
@@ -281,8 +463,8 @@ mod tests {
                 listen 443
                 server-name "example.com"
                 tls {
-                    cert "/path/to/cert"
-                    key "/path/to/key"
+                    cert "test/fixtures/tls/cert.pem"
+                    key "test/fixtures/tls/key.pem"
                 }
             }
             performance {
@@ -295,13 +477,46 @@ mod tests {
         let config = knus::parse::<Config>("test.kdl", config_str).unwrap();
 
         let tls = config.server.tls.as_ref().unwrap();
-        assert_eq!(tls.cert, PathBuf::from("/path/to/cert"));
-        assert_eq!(tls.key, PathBuf::from("/path/to/key"));
+        let (cert, key) = mock_cert();
+        assert_eq!(tls.cert, cert);
+        assert_eq!(tls.key, key);
 
-        assert_eq!(config.performance.crypto_provider, CryptoProvider::AwsLcRs);
+        assert_eq!(config.performance.crypto_provider, CryptoType::AwsLcRs);
         assert_eq!(config.performance.connection_buffer_size, 8192);
         assert_eq!(config.performance.file_read_buffer_size, 16384);
         assert_eq!(config.performance.max_header_count, 128);
+    }
+
+    #[test]
+    fn test_parse_with_invalid_tls() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.kdl");
+        let invalid_cert = dir.path().join("invalid_cert.pem");
+        std::fs::write(&invalid_cert, INVALID_CERT).unwrap();
+        let invalid_key = dir.path().join("invalid_key.pem");
+        std::fs::write(&invalid_key, INVALID_KEY).unwrap();
+        let invalid_config = format!(
+            r#"
+            server {{
+                listen 443
+                server-name "example.com"
+                tls {{
+                    cert "{}"
+                    key "{}"
+                }}
+            }}
+            "#,
+            invalid_cert.display(),
+            invalid_key.display()
+        );
+        std::fs::write(&config_path, invalid_config).unwrap();
+        let result = parse_config(config_path.to_str().unwrap());
+        assert!(
+            result.is_err(),
+            "parsing with invalid tls certificate should fail"
+        );
+        let err_msg = format!("{:?}", result.err().unwrap());
+        assert!(err_msg.contains("base64") || err_msg.contains("decode"));
     }
 
     #[test]
