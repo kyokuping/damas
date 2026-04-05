@@ -5,3 +5,13 @@ config.kdl
 
 #test
 cobertura.xml
+
+# nix/direnv
+.envrc
+.direnv/
+flake.lock
+flake.nix
+
+
+# mac
+.DS_Store

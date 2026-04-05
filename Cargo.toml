@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.100"
 bytes = "1.11.1"
-compio = { version = "0.17.0", features = ["macros", "runtime", "rustls", "tls"] }
+compio = { version = "0.17.0", features = ["macros", "runtime", "rustls", "tls", "time"] }
 futures = "0.3.32"
 http = "1.4.0"
 httparse = "1.10.1"
@@ -16,11 +16,12 @@ minijinja = "2.15.1"
 moka = { version = "0.12.13" , features = ["future"]}
 once_cell = "1.21.3"
 rustls = { version ="0.23.37", default-features = false }
-rustls-pki-types = { version = "1.14.0" , default-features = false }
+rustls-pki-types = "1.14.0"
 thiserror = "2.0.18"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 urlencoding = "2.1.3"
+rustls-pemfile = "2.2.0"
 
 [dev-dependencies]
 tempfile = "3.10.1"
@@ -30,12 +31,25 @@ name = "main_test"
 path = "test/main_test.rs"
 harness = true
 
+[[test]]
+name = "tls_test"
+path = "test/tls_test.rs"
+harness = true
+
 [package.metadata.tarpaulin]
 ignore-tests = true
-exclude-files = ["tests/*"]
+exclude-files = ["test/*"]
 
 [profile.release]
 strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[features]
+default = ["ring"]
+ring = ["rustls/ring"]
+aws_lc_rs = ["rustls/aws_lc_rs"]
+
+[package.metadata.cargo-shear]
+ignored = ["rustls-ring", "aws_lc_rs"]
