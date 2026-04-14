@@ -83,6 +83,11 @@ pub async fn handle_request<T: AsyncRead + AsyncWrite>(
         matched_handler
             .handle_request(stream, context, path_str, remaining_path)
             .await?;
+
+        stream.shutdown().await.map_err(|e| {
+            tracing::error!("TLS shutdown error: {:?}", e);
+            e
+        })?;
     }
     Ok(())
 }
