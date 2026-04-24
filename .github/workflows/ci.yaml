@@ -117,5 +117,5 @@ jobs:
       - name: Install & Run cargo-shear
 
         run: |
-          cargo install cargo-shear@1.7.0
+          cargo install cargo-shear --version 1.7.0 --locked
           cargo shear
