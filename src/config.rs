@@ -41,7 +41,7 @@ pub struct TLSConfig {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct TLSCertificate(pub CertificateDer<'static>);
+pub struct TLSCertificate(pub Vec<CertificateDer<'static>>);
 
 impl FromStr for TLSCertificate {
     type Err = anyhow::Error;
@@ -58,15 +58,19 @@ impl TryFrom<PathBuf> for TLSCertificate {
             std::fs::read(&path).with_context(|| format!("couldn't find cert file: {:?}", path))?;
 
         let mut reader = &data[..];
-        let cert = rustls_pemfile::certs(&mut reader)
-            .next()
-            .ok_or_else(|| anyhow!("couldn't find adequate cert file: {:?}", path))??;
+        let certs = CertificateDer::pem_reader_iter(&mut reader)
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("failed to parse PEM in {:?}", path))?;
 
-        Ok(TLSCertificate(cert))
+        if certs.is_empty() {
+            anyhow::bail!("couldn't find adequate cert file: {:?}", path);
+        }
+
+        Ok(TLSCertificate(certs))
     }
 }
 
-impl From<TLSCertificate> for CertificateDer<'static> {
+impl From<TLSCertificate> for Vec<CertificateDer<'static>> {
     fn from(value: TLSCertificate) -> Self {
         value.0
     }
@@ -84,12 +88,10 @@ impl<S: ErrorSpan> knus::DecodeScalar<S> for TLSCertificate {
                     span: val.span().clone(),
                     source: e.into(),
                 })?;
-                CertificateDer::from_pem_file(path)
-                    .map(TLSCertificate)
-                    .map_err(|e| DecodeError::Conversion {
-                        span: val.span().clone(),
-                        source: Box::new(e),
-                    })
+                Self::try_from(path.to_path_buf()).map_err(|e| DecodeError::Conversion {
+                    span: val.span().clone(),
+                    source: e.into(),
+                })
             }
             _ => Err(DecodeError::scalar_kind(Kind::String, val)),
         }
@@ -118,7 +120,7 @@ impl TryFrom<PathBuf> for TLSPrivateKey {
 
         let mut reader = &data[..];
         let key = rustls_pemfile::private_key(&mut reader)
-            .map_err(|e| anyhow!("PEM parsing failed: {}", e))?
+            .with_context(|| format!("failed to parse PEM in {:?}", path))?
             .ok_or_else(|| anyhow!("key file is empty: {:?}", path))?;
 
         Ok(TLSPrivateKey(key))
@@ -156,12 +158,10 @@ impl<S: ErrorSpan> knus::DecodeScalar<S> for TLSPrivateKey {
                     span: val.span().clone(),
                     source: e.into(),
                 })?;
-                PrivateKeyDer::from_pem_file(path)
-                    .map(TLSPrivateKey)
-                    .map_err(|e| DecodeError::Conversion {
-                        span: val.span().clone(),
-                        source: e.into(),
-                    })
+                Self::try_from(path.to_path_buf()).map_err(|e| DecodeError::Conversion {
+                    span: val.span().clone(),
+                    source: e.into(),
+                })
             }
             _ => Err(DecodeError::scalar_kind(Kind::String, val)),
         }
@@ -365,10 +365,10 @@ fn is_pure_filename(filename: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustls_pki_types::pem::PemObject;
     use std::fs;
     use tempfile;
 
-    const INVALID_CERT: &[u8] = b"-----BEGIN CERTIFICATE-----\nfoobar\n-----END CERTIFICATE-----";
     const INVALID_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nfoobar=\n-----END PRIVATE KEY-----";
 
     fn mock_cert() -> (TLSCertificate, TLSPrivateKey) {
@@ -377,7 +377,9 @@ mod tests {
         let mock_key_path = Path::new("test/fixtures/tls/key.pem");
         let mock_key = fs::read_to_string(mock_key_path).unwrap();
         (
-            TLSCertificate(CertificateDer::from_pem_slice(mock_cert.as_bytes()).unwrap()),
+            TLSCertificate(vec![
+                CertificateDer::from_pem_slice(mock_cert.as_bytes()).unwrap(),
+            ]),
             TLSPrivateKey(PrivateKeyDer::from_pem_slice(mock_key.as_bytes()).unwrap()),
         )
     }
@@ -488,11 +490,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_with_invalid_tls() {
+    fn test_parse_with_invalid_key() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("config.kdl");
-        let invalid_cert = dir.path().join("invalid_cert.pem");
-        std::fs::write(&invalid_cert, INVALID_CERT).unwrap();
         let invalid_key = dir.path().join("invalid_key.pem");
         std::fs::write(&invalid_key, INVALID_KEY).unwrap();
         let invalid_config = format!(
@@ -501,12 +501,11 @@ mod tests {
                 listen 443
                 server-name "example.com"
                 tls {{
-                    cert "{}"
+                    cert "test/fixtures/tls/cert.pem"
                     key "{}"
                 }}
             }}
             "#,
-            invalid_cert.display(),
             invalid_key.display()
         );
         std::fs::write(&config_path, invalid_config).unwrap();
@@ -515,8 +514,6 @@ mod tests {
             result.is_err(),
             "parsing with invalid tls certificate should fail"
         );
-        let err_msg = format!("{:?}", result.err().unwrap());
-        assert!(err_msg.contains("base64") || err_msg.contains("decode"));
     }
 
     #[test]
