@@ -172,9 +172,8 @@ fn load_cert(path: &str) -> TLSCertificate {
     let mut base = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     base.push(path);
 
-    let cert = rustls_pki_types::CertificateDer::from_pem_file(&base)
-        .unwrap_or_else(|_| panic!("fail to load cert.pem: {:?}", base));
-    TLSCertificate(cert)
+    TLSCertificate::try_from(base.clone())
+        .unwrap_or_else(|_| panic!("fail to load cert.pem: {:?}", base))
 }
 
 fn load_key(path: &str) -> TLSPrivateKey {

@@ -13,7 +13,7 @@ pub fn build_rustls_server_config(
             .with_safe_default_protocol_versions()
             .map_err(|e| anyhow::anyhow!("Protocol versions error: {}", e))?
             .with_no_client_auth()
-            .with_single_cert(vec![cert.into()], key.into())
+            .with_single_cert(cert.into(), key.into())
             .map_err(|e| anyhow::anyhow!("Certificate error: {}", e))?,
     ))
 }
@@ -80,7 +80,7 @@ xJmPLcfZPY5yCuRAv0hCxafa
         let key_der =
             PrivateKeyDer::from_pem_slice(MOCK_KEY).expect("Failed to parse MOCK_KEY as PEM");
 
-        (TLSCertificate(cert_der), TLSPrivateKey(key_der))
+        (TLSCertificate(vec![cert_der]), TLSPrivateKey(key_der))
     }
 
     #[test]
