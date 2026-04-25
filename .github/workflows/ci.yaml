@@ -114,8 +114,8 @@ jobs:
       - name: Clippy Lint
         run: cargo clippy -- -D warnings
 
-      - name: Install & Run cargo-shear
+      - name: Install & Check unused dependencies
 
         run: |
-          cargo install cargo-shear --version 1.7.0 --locked
-          cargo shear
+          cargo install cargo-machete --version 0.9.1
+          cargo-machete
