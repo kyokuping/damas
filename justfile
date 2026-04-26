@@ -1,6 +1,10 @@
 set shell := ["bash", "-c"]
 
 default_target := "aarch64-unknown-linux-gnu"
+targets := "x86_64-pc-windows-msvc \
+    x86_64-unknown-linux-gnu \
+    aarch64-unknown-linux-gnu \
+    aarch64-apple-darwin"
 
 default:
     @just --list
@@ -22,7 +26,20 @@ coverage:
     xdg-open tarpaulin-report.html
 
 build-target target=default_target:
+    @rustup target add {{ target }} > /dev/null 2>&1
     cargo build --target {{ target }}
+
+build-targets *target_list:
+    @for target in {{ target_list }}; do \
+        echo "🛠️ Building for $target..."; \
+        just build-target $target; \
+    done
+
+build-all:
+    @for target in {{ targets }}; do \
+        echo "🛠️ Building for $target..."; \
+        just build-target $target; \
+    done
 
 run:
     cargo run
