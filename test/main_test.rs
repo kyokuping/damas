@@ -134,7 +134,9 @@ where
             max_header_count: 64,
             ..Default::default()
         },
-        monitoring: None,
+        monitoring: MonitoringConfig {
+            ..Default::default()
+        },
     };
     modifier(&mut config);
 

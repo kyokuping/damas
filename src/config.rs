@@ -1,4 +1,5 @@
 use anyhow::{Context, anyhow};
+use knus::DecodeScalar;
 use knus::ast::{Literal, TypeName};
 use knus::decode::Kind;
 use knus::errors::{DecodeError, ExpectedType};
@@ -16,8 +17,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[knus(child, default)]
     pub performance: PerformanceConfig,
-    #[knus(child)]
-    pub monitoring: Option<MonitoringConfig>,
+    #[knus(child, default)]
+    pub monitoring: MonitoringConfig,
 }
 
 #[derive(knus::Decode, Debug, Default, PartialEq)]
@@ -367,35 +368,72 @@ fn is_pure_filename(filename: &str) -> bool {
 #[derive(knus::Decode, Debug, Default, PartialEq)]
 pub struct MonitoringConfig {
     #[knus(child, unwrap(argument))]
-    pub health_check: Option<String>,
+    pub health_check: Option<SystemRoute>,
     #[knus(child, unwrap(argument))]
-    pub metrics_path: Option<String>,
+    pub metrics_path: Option<SystemRoute>,
 }
 
 impl MonitoringConfig {
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(path) = &self.health_check {
-            if !path.starts_with("/_") {
-                return Err(format!("Invalid path '{}': must start with '/_'", path));
-            }
-        }
-
-        if let Some(path) = &self.metrics_path {
-            if !path.starts_with("/_") {
-                return Err(format!("Invalid path '{}': must start with '/_'", path));
-            }
-        }
-
         if let (Some(health), Some(metrics)) = (&self.health_check, &self.metrics_path) {
             if health == metrics {
                 return Err(format!(
                     "Health check path '{}' must not be the same as metrics path '{}'",
-                    health, metrics
+                    health.0, metrics.0
                 ));
             }
         }
-
         Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SystemRoute(pub String);
+
+impl SystemRoute {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for SystemRoute {
+    fn from(s: &str) -> Self {
+        SystemRoute(s.into())
+    }
+}
+
+impl<S: ErrorSpan> DecodeScalar<S> for SystemRoute {
+    fn raw_decode(
+        val: &Spanned<Literal, S>,
+        _: &mut knus::decode::Context<S>,
+    ) -> Result<Self, DecodeError<S>> {
+        match &**val {
+            Literal::String(path_str) => {
+                if !path_str.starts_with("/_") {
+                    return Err(DecodeError::Conversion {
+                        span: val.span().clone(),
+                        source: format!(
+                            "Invalid monitoring path '{}': must start with '/_'",
+                            path_str
+                        )
+                        .into(),
+                    });
+                }
+
+                Ok(Self(path_str.to_string()))
+            }
+            _ => Err(DecodeError::scalar_kind(Kind::String, val)),
+        }
+    }
+    fn type_check(type_name: &Option<Spanned<TypeName, S>>, ctx: &mut knus::decode::Context<S>) {
+        if let Some(typ) = type_name {
+            ctx.emit_error(DecodeError::TypeName {
+                span: typ.span().clone(),
+                found: Some((**typ).clone()),
+                expected: ExpectedType::no_type(),
+                rust_type: "SystemRoute",
+            });
+        }
     }
 }
 
@@ -668,10 +706,10 @@ mod tests {
                     max_header_count: 64,
                     ..Default::default()
                 },
-                monitoring: Some(MonitoringConfig {
-                    health_check: Some("/_health".to_string()),
-                    metrics_path: Some("/_metrics".to_string()),
-                }),
+                monitoring: MonitoringConfig {
+                    health_check: Some("/_health".into()),
+                    metrics_path: Some("/_metrics".into()),
+                },
             }
         )
     }

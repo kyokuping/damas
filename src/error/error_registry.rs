@@ -88,7 +88,7 @@ mod tests {
     use crate::{
         config::{
             Config, ErrorCodeEntry, ErrorFiles, ErrorPage, LocationConfig, LocationConfigType,
-            PerformanceConfig, ServerConfig,
+            MonitoringConfig, PerformanceConfig, ServerConfig,
         },
         error::*,
     };
@@ -142,7 +142,10 @@ mod tests {
                 max_header_count: 64,
                 ..Default::default()
             },
-            monitoring: None,
+            monitoring: MonitoringConfig {
+                health_check: None,
+                metrics_path: None,
+            },
         };
 
         modifier(&mut config);
