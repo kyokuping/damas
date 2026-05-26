@@ -38,3 +38,8 @@ performance {
     file-read-buffer-size 8192
     max-header-count 64
 }
+
+monitoring {
+    health-check "/_health"
+    metrics-path "/_metrics"
+}

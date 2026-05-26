@@ -16,6 +16,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[knus(child, default)]
     pub performance: PerformanceConfig,
+    #[knus(child)]
+    pub monitoring: Option<MonitoringConfig>,
 }
 
 #[derive(knus::Decode, Debug, Default, PartialEq)]
@@ -362,6 +364,41 @@ fn is_pure_filename(filename: &str) -> bool {
     components.next().is_none()
 }
 
+#[derive(knus::Decode, Debug, Default, PartialEq)]
+pub struct MonitoringConfig {
+    #[knus(child, unwrap(argument))]
+    pub health_check: Option<String>,
+    #[knus(child, unwrap(argument))]
+    pub metrics_path: Option<String>,
+}
+
+impl MonitoringConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(path) = &self.health_check {
+            if !path.starts_with("/_") {
+                return Err(format!("Invalid path '{}': must start with '/_'", path));
+            }
+        }
+
+        if let Some(path) = &self.metrics_path {
+            if !path.starts_with("/_") {
+                return Err(format!("Invalid path '{}': must start with '/_'", path));
+            }
+        }
+
+        if let (Some(health), Some(metrics)) = (&self.health_check, &self.metrics_path) {
+            if health == metrics {
+                return Err(format!(
+                    "Health check path '{}' must not be the same as metrics path '{}'",
+                    health, metrics
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -517,6 +554,25 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_monitoring_path() {
+        let config_str = r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            monitoring {
+                health-check "/invalid"
+                metrics-path "/invalid"
+            }
+        "#;
+        let result = parse_config(&config_str);
+        assert!(
+            result.is_err(),
+            "parsing with invalid health check path should fail"
+        );
+    }
+
+    #[test]
     fn test_parse() {
         let config = r#"
             server {
@@ -546,6 +602,11 @@ mod tests {
                 connection-buffer-size 4096
                 file-read-buffer-size 8192
                 max-header-count 64
+            }
+
+            monitoring {
+                health-check "/_health"
+                metrics-path "/_metrics"
             }
 
         "#;
@@ -607,6 +668,10 @@ mod tests {
                     max_header_count: 64,
                     ..Default::default()
                 },
+                monitoring: Some(MonitoringConfig {
+                    health_check: Some("/_health".to_string()),
+                    metrics_path: Some("/_metrics".to_string()),
+                }),
             }
         )
     }

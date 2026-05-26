@@ -199,6 +199,7 @@ mod tests {
                 max_header_count: 64,
                 ..Default::default()
             },
+            monitoring: None,
         };
 
         modifier(&mut config);
