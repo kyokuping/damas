@@ -199,10 +199,11 @@ mod tests {
                 max_header_count: 64,
                 ..Default::default()
             },
-            monitoring: MonitoringConfig {
+            monitoring: Some(MonitoringConfig {
+                listen: 3001,
                 health_check: Some(SystemRoute("/health".into())),
                 metrics_path: Some(SystemRoute("/metrics".into())),
-            },
+            }),
         };
 
         modifier(&mut config);

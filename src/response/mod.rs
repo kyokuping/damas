@@ -1,3 +1,5 @@
+pub mod probe;
+
 use crate::{error::ErrorRegistry, index::IndexCache};
 use bytes::{Bytes, BytesMut};
 use compio::fs::Metadata;
@@ -5,7 +7,7 @@ use http::StatusCode;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-fn build_http_response(status: u16, mime: &str, body: Bytes, keep_alive: bool) -> Bytes {
+pub fn build_http_response(status: u16, mime: &str, body: Bytes, keep_alive: bool) -> Bytes {
     let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
 
@@ -86,10 +88,16 @@ mod tests {
 
     static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
         let mut env = Environment::new();
-        env.add_template("error", include_str!("../template/error.jinja"))
-            .unwrap();
-        env.add_template("index", include_str!("../template/index.jinja"))
-            .unwrap();
+        env.add_template(
+            "error",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/template/error.jinja")),
+        )
+        .unwrap();
+        env.add_template(
+            "index",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/template/index.jinja")),
+        )
+        .unwrap();
         env
     });
 

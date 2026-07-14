@@ -17,8 +17,8 @@ pub struct Config {
     pub server: ServerConfig,
     #[knus(child, default)]
     pub performance: PerformanceConfig,
-    #[knus(child, default)]
-    pub monitoring: MonitoringConfig,
+    #[knus(child)]
+    pub monitoring: Option<MonitoringConfig>,
 }
 
 #[derive(knus::Decode, Debug, Default, PartialEq)]
@@ -312,12 +312,33 @@ impl From<CryptoType> for rustls::crypto::CryptoProvider {
 }
 impl Config {
     pub fn validate(&self) -> miette::Result<()> {
-        for loc in &self.server.locations {
-            loc.validate()?;
+        self.server.validate()?;
+
+        if let Some(monitoring) = &self.monitoring {
+            monitoring.validate()?;
+
+            if monitoring.listen == self.server.listen {
+                return Err(miette!(
+                    "config Error: monitoring listen '{}' must not match application listen '{}'",
+                    monitoring.listen,
+                    self.server.listen
+                ));
+            }
         }
         Ok(())
     }
 }
+
+impl ServerConfig {
+    pub fn validate(&self) -> miette::Result<()> {
+        for location in &self.locations {
+            location.validate()?;
+        }
+
+        Ok(())
+    }
+}
+
 pub fn parse_config(config_path: &str) -> miette::Result<Config> {
     let kdl_input = std::fs::read_to_string(config_path).into_diagnostic()?;
     let config = knus::parse::<Config>(config_path, &kdl_input)?;
@@ -368,22 +389,34 @@ fn is_pure_filename(filename: &str) -> bool {
 #[derive(knus::Decode, Debug, Default, PartialEq)]
 pub struct MonitoringConfig {
     #[knus(child, unwrap(argument))]
+    pub listen: u16,
+    #[knus(child, unwrap(argument))]
     pub health_check: Option<SystemRoute>,
     #[knus(child, unwrap(argument))]
     pub metrics_path: Option<SystemRoute>,
 }
 
 impl MonitoringConfig {
-    pub fn validate(&self) -> Result<(), String> {
-        if let (Some(health), Some(metrics)) = (&self.health_check, &self.metrics_path) {
-            if health == metrics {
-                return Err(format!(
-                    "Health check path '{}' must not be the same as metrics path '{}'",
-                    health.0, metrics.0
-                ));
-            }
+    pub fn validate(&self) -> miette::Result<()> {
+        if let (Some(health), Some(metrics)) = (&self.health_check, &self.metrics_path)
+            && health == metrics
+        {
+            return Err(miette!(
+                "Health check path '{}' must not be the same as metrics path '{}'",
+                health.0,
+                metrics.0
+            ));
         }
+
         Ok(())
+    }
+
+    pub fn is_health_check(&self, path: &str) -> bool {
+        self.health_check.as_ref().map(|p| p.0.as_ref()) == Some(path)
+    }
+
+    pub fn is_metrics(&self, path: &str) -> bool {
+        self.metrics_path.as_ref().map(|p| p.0.as_ref()) == Some(path)
     }
 }
 
@@ -445,6 +478,12 @@ mod tests {
     use tempfile;
 
     const INVALID_KEY: &[u8] = b"-----BEGIN PRIVATE KEY-----\nfoobar=\n-----END PRIVATE KEY-----";
+
+    fn parse_and_validate(config: &str) -> miette::Result<Config> {
+        let config = knus::parse::<Config>("test.kdl", config)?;
+        config.validate()?;
+        Ok(config)
+    }
 
     fn mock_cert() -> (TLSCertificate, TLSPrivateKey) {
         let mock_cert_path = Path::new("test/fixtures/tls/cert.pem");
@@ -599,15 +638,108 @@ mod tests {
                 server-name "localhost"
             }
             monitoring {
+                listen 3001
                 health-check "/invalid"
-                metrics-path "/invalid"
             }
         "#;
-        let result = parse_config(&config_str);
+        let result = parse_and_validate(config_str);
         assert!(
             result.is_err(),
             "parsing with invalid health check path should fail"
         );
+    }
+
+    #[test]
+    fn test_monitoring_block_is_optional() {
+        let config = parse_and_validate(
+            r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert!(config.monitoring.is_none());
+    }
+
+    #[test]
+    fn test_monitoring_listen_is_required() {
+        let result = parse_and_validate(
+            r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            monitoring {
+                health-check "/_health"
+            }
+            "#,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_monitoring_endpoints_are_optional() {
+        let config = parse_and_validate(
+            r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            monitoring {
+                listen 3001
+            }
+            "#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.monitoring,
+            Some(MonitoringConfig {
+                listen: 3001,
+                health_check: None,
+                metrics_path: None,
+            })
+        );
+    }
+
+    #[test]
+    fn test_monitoring_paths_must_differ() {
+        let result = parse_and_validate(
+            r#"
+            server {
+                listen 80
+                server-name "localhost"
+            }
+            monitoring {
+                listen 3001
+                health-check "/_probe"
+                metrics-path "/_probe"
+            }
+            "#,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_application_and_monitoring_ports_must_differ() {
+        let result = parse_and_validate(
+            r#"
+            server {
+                listen 3001
+                server-name "localhost"
+            }
+            monitoring {
+                listen 3001
+            }
+            "#,
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -643,6 +775,7 @@ mod tests {
             }
 
             monitoring {
+                listen 3001
                 health-check "/_health"
                 metrics-path "/_metrics"
             }
@@ -706,10 +839,11 @@ mod tests {
                     max_header_count: 64,
                     ..Default::default()
                 },
-                monitoring: MonitoringConfig {
+                monitoring: Some(MonitoringConfig {
+                    listen: 3001,
                     health_check: Some("/_health".into()),
                     metrics_path: Some("/_metrics".into()),
-                },
+                }),
             }
         )
     }

@@ -142,10 +142,11 @@ mod tests {
                 max_header_count: 64,
                 ..Default::default()
             },
-            monitoring: MonitoringConfig {
+            monitoring: Some(MonitoringConfig {
+                listen: 3001,
                 health_check: None,
                 metrics_path: None,
-            },
+            }),
         };
 
         modifier(&mut config);
