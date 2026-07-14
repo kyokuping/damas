@@ -36,6 +36,12 @@ name = "tls_test"
 path = "test/tls_test.rs"
 harness = true
 
+[[test]]
+name = "monitoring_test"
+path = "test/monitoring_test.rs"
+harness = true
+required-features = ["monitoring-tdd"]
+
 [package.metadata.tarpaulin]
 ignore-tests = true
 exclude-files = ["test/*"]
@@ -50,3 +56,4 @@ panic = "abort"
 default = ["ring"]
 ring = ["rustls/ring"]
 aws_lc_rs = ["rustls/aws_lc_rs"]
+monitoring-tdd = []
