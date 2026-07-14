@@ -10,6 +10,28 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  monitoring_tdd:
+    name: Monitoring TDD (expected red)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mold linker
+        run: sudo apt update && sudo apt install -y mold
+
+      - name: Install Rust 1.90.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90.0
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run monitoring acceptance tests
+        run: cargo test --locked --features monitoring-tdd --test monitoring_test
+
   build_and_test:
     name: Build and Test
     runs-on: ubuntu-24.04-arm
