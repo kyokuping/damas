@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod http;
 pub mod index;
+pub mod monitoring;
 pub mod request;
 pub mod response;
 pub mod router;
