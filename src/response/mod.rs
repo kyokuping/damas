@@ -1,5 +1,3 @@
-pub mod probe;
-
 use crate::{error::ErrorRegistry, index::IndexCache};
 use bytes::{Bytes, BytesMut};
 use compio::fs::Metadata;
@@ -7,58 +5,69 @@ use http::StatusCode;
 use std::fmt::Write;
 use std::path::PathBuf;
 
-pub fn build_http_response(status: u16, mime: &str, body: Bytes, keep_alive: bool) -> Bytes {
+pub fn build_http_response(
+    status: u16,
+    mime: &str,
+    body: Bytes,
+    keep_alive: bool,
+    additional_headers: &[(&str, &str)],
+) -> Bytes {
+    let mut response = build_http_head(
+        status,
+        mime,
+        body.len() as u64,
+        keep_alive,
+        additional_headers,
+    );
+    response.reserve(body.len());
+    response.extend_from_slice(&body);
+    response.freeze()
+}
+
+fn build_http_head(
+    status: u16,
+    mime: &str,
+    content_length: u64,
+    keep_alive: bool,
+    additional_headers: &[(&str, &str)],
+) -> BytesMut {
     let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
 
-    let mut res = BytesMut::with_capacity(128 + body.len());
+    let mut response = BytesMut::with_capacity(128);
 
     write!(
-        &mut res,
+        &mut response,
         "HTTP/1.1 {} {}\r\n\
             Content-Type: {}\r\n\
             Content-Length: {}\r\n\
-            Connection: {}\r\n\r\n",
-        status,
+            Connection: {}\r\n",
+        status_code.as_u16(),
         reason,
         mime,
-        body.len(),
+        content_length,
         if keep_alive { "keep-alive" } else { "close" }
     )
     .ok();
 
-    res.extend_from_slice(&body);
-    tracing::Span::current().record("status", status);
-    res.freeze()
+    for (name, value) in additional_headers {
+        write!(&mut response, "{}: {}\r\n", name, value).ok();
+    }
+
+    response.extend_from_slice(b"\r\n");
+    tracing::Span::current().record("status", status_code.as_u16());
+    response
 }
 
 pub fn response(metadata: &Metadata, mime: &str, status: u16) -> Bytes {
-    let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let reason = status_code.canonical_reason().unwrap_or("Unknown Error");
-
-    let mut res = BytesMut::with_capacity(128);
-
-    write!(
-        &mut res,
-        "HTTP/1.1 {} {}\r\n\
-            Content-Type: {}\r\n\
-            Content-Length: {}\r\n\
-            Connection: keep-alive\r\n\r\n",
-        status,
-        reason,
-        mime,
-        metadata.len(),
-    )
-    .ok();
-    tracing::Span::current().record("status", status);
-    res.freeze()
+    build_http_head(status, mime, metadata.len(), true, &[]).freeze()
 }
 
 pub async fn error_response(registry: &ErrorRegistry, error: &crate::error::DamasError) -> Bytes {
     let status = error.status_code();
     let body = registry.resolve(status).await;
     let mime = "text/html; charset=utf-8";
-    build_http_response(status, mime, body, false)
+    build_http_response(status, mime, body, false, &[])
 }
 
 pub async fn index_page_response(
@@ -74,7 +83,7 @@ pub async fn index_page_response(
         });
 
     let mime = "text/html; charset=utf-8";
-    build_http_response(200, mime, index, true)
+    build_http_response(200, mime, index, true, &[])
 }
 
 #[cfg(test)]
@@ -128,6 +137,22 @@ mod tests {
         let res_str = String::from_utf8_lossy(&response);
 
         assert!(res_str.contains("500 Internal Server Error"));
+    }
+
+    #[test]
+    fn test_build_http_response_with_additional_headers() {
+        let response = build_http_response(
+            200,
+            "application/json",
+            Bytes::from_static(b"{}"),
+            true,
+            &[("Cache-Control", "no-store"), ("X-Test", "value")],
+        );
+        let response = String::from_utf8_lossy(&response);
+
+        assert!(response.contains("Cache-Control: no-store\r\n"));
+        assert!(response.contains("X-Test: value\r\n"));
+        assert!(response.ends_with("\r\n\r\n{}"));
     }
 
     #[compio::test]
