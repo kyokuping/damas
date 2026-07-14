@@ -1,7 +1,6 @@
 use crate::Config;
 use crate::ServerContext;
 use crate::config::LocationConfigType;
-use crate::config::MonitoringConfig;
 use crate::error::DamasError;
 use crate::response::{index_page_response, response};
 use crate::util::{get_mime_bytes, sanitize_path};
@@ -272,22 +271,8 @@ impl RouterNode {
                 )),
             );
             tracing::info!("Route registered: {}", path);
-
-            router.insert_system_routes(&config.monitoring);
         }
         Ok(router)
-    }
-
-    fn insert_system_routes(&mut self, monitoring: &Option<MonitoringConfig>) {
-        if let Some(health_check) = &monitoring.as_ref().and_then(|m| m.health_check.as_ref()) {
-            self.insert(&health_check.0, MatchType::Exact, None);
-            tracing::info!("Route registered : {}", health_check.0);
-        }
-
-        if let Some(metrics_path) = &monitoring.as_ref().and_then(|m| m.metrics_path.as_ref()) {
-            self.insert(&metrics_path.0, MatchType::Exact, None);
-            tracing::info!("Route registered : {}", metrics_path.0);
-        }
     }
 }
 
@@ -963,42 +948,5 @@ mod tests {
         assert_eq!(root.search("/no_match"), None);
         assert_eq!(root.search("/exac"), None); // Partial match, but not prefix for "exact"
         assert_eq!(root.search("/prefi"), None); // Partial match, but not prefix for "prefix"
-    }
-
-    #[test]
-    fn test_router_insert_system_routes_with_none() {
-        let mut root = RouterNode::default();
-        let monitoring = MonitoringConfig {
-            listen: 3001,
-            health_check: None,
-            metrics_path: None,
-        };
-        root.insert_system_routes(&Some(monitoring));
-        assert!(root.children.is_empty());
-    }
-    #[test]
-    fn test_router_insert_system_routes_with_some() {
-        let mut root = RouterNode::default();
-        let monitoring = MonitoringConfig {
-            listen: 3001,
-            health_check: Some(crate::config::SystemRoute("/_health".into())),
-            metrics_path: Some(crate::config::SystemRoute("/_metrics".into())),
-        };
-
-        root.insert_system_routes(&Some(monitoring));
-
-        println!("{:?}", root.children);
-        assert_eq!(root.children.len(), 1);
-
-        let prefix_node = &root.children[0];
-        assert_eq!(prefix_node.path, "/_");
-        assert_eq!(prefix_node.children.len(), 2);
-
-        let health_node = prefix_node.children.iter().find(|n| n.path == "health");
-        assert_eq!(health_node.unwrap().match_type, MatchType::Exact);
-        assert!(health_node.unwrap().handler.is_none());
-        let metrics_node = prefix_node.children.iter().find(|n| n.path == "metrics");
-        assert_eq!(metrics_node.unwrap().match_type, MatchType::Exact);
-        assert!(metrics_node.unwrap().handler.is_none());
     }
 }
